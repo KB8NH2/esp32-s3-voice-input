@@ -1,0 +1,20 @@
+{
+  "idf.espIdfPathWin": "C:\\Users\\Jim\\esp\\v5.5.2\\esp-idf",
+  "idf.toolsPathWin": "C:\\Users\\Jim\\.espressif",
+  "idf.pythonInstallPath": "C:\\Users\\Jim\\.espressif\\tools\\idf-python\\3.11.2\\python.exe",
+  "idf.flashType": "JTAG",
+  "idf.portWin": "COM4",
+  "idf.monitorPort": "COM4",
+  "idf.openOcdConfigs": [
+    "board/esp32s3-builtin.cfg"
+  ],
+  "idf.customExtraVars": {
+    "IDF_TARGET": "esp32s3"
+  },
+  "clangd.path": "C:\\Users\\Jim\\.espressif\\tools\\esp-clang\\esp-19.1.2_20250312\\esp-clang\\bin\\clangd.exe",
+  "clangd.arguments": [
+    "--background-index",
+    "--query-driver=**",
+    "--compile-commands-dir=c:\\Users\\Jim\\Downloads\\ESP32-S3\\ESP32-S3-AUDIO-Board-Demo\\ESP-IDF\\lvgl9_3_example_04\\build"
+  ]
+}
