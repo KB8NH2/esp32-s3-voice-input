@@ -97,6 +97,14 @@ static i2c_master_dev_handle_t es7210_dev = NULL;
 i2s_chan_handle_t i2s_tx_handle = NULL;   // speaker
 i2s_chan_handle_t i2s_rx_handle = NULL;   // mic
 
+// Whether codec is in TDM mode (4 slots per LRCK)
+static bool s_es7210_tdm = false;
+
+bool audio_driver_es7210_is_tdm(void)
+{
+    return s_es7210_tdm;
+}
+
 // --------------------------
 // I2C helpers
 // --------------------------
@@ -351,7 +359,7 @@ uint8_t tca9555_read_port1(i2c_port_t port) {
 
 bool key3_pressed(void) {
     uint8_t port1 = tca9555_read_port1(I2C_NUM_0);
-    return !(port1 & (1 << 3));  // P1_3
+    return !(port1 & (1 << 1));  // P1_1
 }
 
 bool debounce_key3(void) {
@@ -361,7 +369,7 @@ bool debounce_key3(void) {
     bool current = key3_pressed();
     uint32_t now = xTaskGetTickCount();
 
-    if (current != last_state && (now - last_change) > pdMS_TO_TICKS(30)) {
+    if (current != last_state && (now - last_change) > pdMS_TO_TICKS(100)) {
         last_state = current;
         last_change = now;
     }
@@ -375,8 +383,6 @@ bool debounce_key3(void) {
 esp_err_t audio_driver_init(i2s_chan_handle_t *tx_handle_out,
                             i2s_chan_handle_t *rx_handle_out)
 {
-    esp_err_t err;
-
     //
     // --- I2C BUS + DEVICES INIT ---
     //
@@ -422,6 +428,15 @@ esp_err_t audio_driver_init(i2s_chan_handle_t *tx_handle_out,
 
     ESP_LOGI(TAG, "Initializing ES7210 codec (ADC)...");
     ESP_ERROR_CHECK(es7210_init_adc());
+
+    // Note: clock reconfiguration must run after channels are created/initialized.
+
+    // Detect whether ES7210 is in TDM mode (SDP_INTERFACE2 bit 1)
+    {
+        uint8_t sdp12 = 0;
+        es7210_read_reg(ES7210_SDP_INTERFACE2_REG12, &sdp12);
+        s_es7210_tdm = (sdp12 & 0x02) ? true : false;
+    }
 
     // Initialize LED ring (WS281x) if available
     led_strip_config_t strip_config = {
@@ -522,6 +537,17 @@ esp_err_t audio_driver_init(i2s_chan_handle_t *tx_handle_out,
     ESP_LOGI(TAG, "Initializing I2S TX (ES8311)...");
     ESP_ERROR_CHECK(i2s_channel_init_std_mode(tx_handle, &tx_cfg));
 
+    /* Reconfigure clocks now that channels exist */
+    {
+        i2s_std_clk_config_t clk_cfg = {
+            .sample_rate_hz = 16000,
+            .clk_src = I2S_CLK_SRC_DEFAULT,
+            .mclk_multiple = I2S_MCLK_MULTIPLE_256,
+        };
+        i2s_channel_reconfig_std_clock(rx_handle, &clk_cfg);
+        i2s_channel_reconfig_std_clock(tx_handle, &clk_cfg);
+    }
+
 
     //
     // --- ENABLE CHANNELS ---
@@ -532,12 +558,10 @@ esp_err_t audio_driver_init(i2s_chan_handle_t *tx_handle_out,
     ESP_LOGI(TAG, "Enabling I2S TX...");
     ESP_ERROR_CHECK(i2s_channel_enable(tx_handle));
 
-    // Quick sanity read
+    // Quick sanity read (silent)
     uint8_t testbuf[64];
     size_t br = 0;
-    esp_err_t rxerr = i2s_channel_read(rx_handle, testbuf, sizeof(testbuf), &br, 100);
-    ESP_LOGI(TAG, "Initial RX read: err=%s bytes=%u",
-             esp_err_to_name(rxerr), (unsigned)br);
+    (void)i2s_channel_read(rx_handle, testbuf, sizeof(testbuf), &br, 100);
 
 
     //

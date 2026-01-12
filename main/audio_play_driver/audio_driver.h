@@ -12,6 +12,9 @@ esp_err_t audio_driver_init(i2s_chan_handle_t *tx_handle_out,
 
 void audio_play_pcm(int16_t *samples, size_t sample_count);
 
+// Return true if ES7210 is configured in TDM mode (4 slots per LRCK)
+bool audio_driver_es7210_is_tdm(void);
+
 // Key handling
 bool key3_pressed(void);
 bool debounce_key3(void);

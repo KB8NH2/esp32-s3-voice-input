@@ -6,6 +6,7 @@
 #include "driver/gpio.h"
 #include "driver/i2s_std.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/semphr.h"
 #include <stdlib.h>
 #include <math.h>
@@ -25,6 +26,7 @@ static size_t s_capture_samples = 0;
 static size_t s_capture_capacity = 0;
 static SemaphoreHandle_t s_capture_mutex = NULL;
 static const size_t CAPTURE_INITIAL_SAMPLES = 16000; // ~1s @ 16k
+static int64_t s_capture_start_us = 0;
 
 void Speech_Init(void)
 {
@@ -62,6 +64,7 @@ void mic_start_capture(void)
     if (xSemaphoreTake(s_capture_mutex, portMAX_DELAY) == pdTRUE) {
         s_capture_samples = 0;
         s_capture_enabled = true;
+        s_capture_start_us = esp_timer_get_time();
         ESP_LOGI(TAG, "mic_start_capture: enabled, samples reset");
         xSemaphoreGive(s_capture_mutex);
     }
@@ -75,6 +78,14 @@ void mic_stop_capture(void)
     }
     if (xSemaphoreTake(s_capture_mutex, portMAX_DELAY) == pdTRUE) {
         s_capture_enabled = false;
+        int64_t now = esp_timer_get_time();
+        if (s_capture_start_us > 0 && now > s_capture_start_us) {
+            double secs = (now - s_capture_start_us) / 1000000.0;
+            double rate = secs > 0 ? (double)s_capture_samples / secs : 0.0;
+            ESP_LOGI(TAG, "mic_stop_capture: samples=%u duration=%.3fs approx_rate=%.1f Hz",
+                     (unsigned)s_capture_samples, secs, rate);
+        }
+        s_capture_start_us = 0;
         ESP_LOGI(TAG, "mic_stop_capture: disabled");
         xSemaphoreGive(s_capture_mutex);
     }
@@ -171,13 +182,26 @@ static void mic_task(void *arg)
 
         int32_t *samples32 = (int32_t *)buf;
         int total_slots = bytes_read / sizeof(int32_t);   // should be 128
-        int frames = total_slots / 4;                     // 4 slots per frame → 32 frames
+        bool tdm = audio_driver_es7210_is_tdm();
+        int channels_per_frame = tdm ? 4 : 2;
+        int frames = total_slots / channels_per_frame;    // frames per read
 
-        int16_t pcm16[32];  // 32 mono samples per 512-byte read
+        (void)total_slots; (void)frames; (void)samples32;
+
+        int16_t pcm16[64];  // support up to 64 mono samples per 512-byte read
+
+        int16_t *pcm_ptr = pcm16;
 
         for (int f = 0; f < frames; f++) {
-            int32_t s_mic1 = samples32[f * 4 + 1] >> 16;   // MIC1
-            int32_t s_mic2 = samples32[f * 4 + 3] >> 16;   // MIC2
+            int32_t s_mic1, s_mic2;
+            if (tdm) {
+                s_mic1 = samples32[f * 4 + 1] >> 16;   // MIC1
+                s_mic2 = samples32[f * 4 + 3] >> 16;   // MIC2
+            } else {
+                // Standard I2S stereo: assume left=MIC1, right=MIC2
+                s_mic1 = samples32[f * 2 + 0] >> 16;
+                s_mic2 = samples32[f * 2 + 1] >> 16;
+            }
 
             // Downmix
             int32_t mono = (s_mic1 + s_mic2) / 2;
@@ -189,7 +213,7 @@ static void mic_task(void *arg)
             if (mono > 32767) mono = 32767;
             if (mono < -32768) mono = -32768;
 
-            pcm16[f] = (int16_t)mono;
+            pcm_ptr[f] = (int16_t)mono;
         }
 
         // ----------------------------------------------------
