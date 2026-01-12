@@ -1,0 +1,44 @@
+# Ignore build artifacts and temporary files for ESP-IDF projects
+
+# Build output
+/build/
+/build/**
+
+# CMake and ninja files
+/CMakeFiles/
+/CMakeCache.txt
+/cmake_install.cmake
+/compile_commands.json
+/*.ninja*
+*.ninja_log
+
+# CMake File API
+/.cmake/
+
+# IDF logs
+/build/log/
+
+# IDE / editor
+/.vscode/
+*.code-workspace
+/.idea/
+
+# Python virtualenvs
+/venv/
+/env/
+/.env/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Binaries and artifacts
+*.bin
+*.elf
+*.map
+*.hex
+
+# Misc
+*.log
+*.tmp
+*.swp
