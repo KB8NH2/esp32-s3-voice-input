@@ -18,7 +18,7 @@
 static const char *TAG = "stt";
 
 #define STT_SAMPLE_RATE 16000
-#define DEVICE_SAMPLE_RATE 8000
+#define DEVICE_SAMPLE_RATE 16000
 
 // Build a 44-byte WAV header for PCM16 mono
 static void build_wav_header(uint8_t *header, uint32_t pcm_data_size) {

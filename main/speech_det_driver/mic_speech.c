@@ -227,10 +227,7 @@ static void mic_task(void *arg)
             sum_sq += (int64_t)s * s;
             if (abs(s) > peak) peak = abs(s);
         }
-/*
-        float rms = sqrtf((float)sum_sq / frames);
-        ESP_LOGI("MIC", "RMS=%.1f  Peak=%d", rms, peak);
-*/
+    
         // ----------------------------------------------------
         // Feed mono PCM into VAD and optional capture buffer
         // ----------------------------------------------------

@@ -308,7 +308,7 @@ static esp_err_t es7210_init_adc(void)
     ESP_ERROR_CHECK(es7210_write_reg(ES7210_RESET_REG00, 0x71));
     ESP_ERROR_CHECK(es7210_write_reg(ES7210_RESET_REG00, 0x41));
 
-    // Debug readback
+    
     uint8_t r1, r2, r40;
     es7210_read_reg(ES7210_CLOCK_OFF_REG01, &r1);
     es7210_read_reg(ES7210_POWER_DOWN_REG06, &r2);
@@ -429,7 +429,6 @@ esp_err_t audio_driver_init(i2s_chan_handle_t *tx_handle_out,
     ESP_LOGI(TAG, "Initializing ES7210 codec (ADC)...");
     ESP_ERROR_CHECK(es7210_init_adc());
 
-    // Note: clock reconfiguration must run after channels are created/initialized.
 
     // Detect whether ES7210 is in TDM mode (SDP_INTERFACE2 bit 1)
     {
@@ -558,7 +557,7 @@ esp_err_t audio_driver_init(i2s_chan_handle_t *tx_handle_out,
     ESP_LOGI(TAG, "Enabling I2S TX...");
     ESP_ERROR_CHECK(i2s_channel_enable(tx_handle));
 
-    // Quick sanity read (silent)
+    
     uint8_t testbuf[64];
     size_t br = 0;
     (void)i2s_channel_read(rx_handle, testbuf, sizeof(testbuf), &br, 100);

@@ -67,6 +67,7 @@ void conversation_send(const char *user_text)
         .url = s_conv_url,
         .method = HTTP_METHOD_POST,
         .event_handler = _http_event_handler,
+        .timeout_ms = 15000,
     };
 
     esp_http_client_handle_t client = esp_http_client_init(&cfg);

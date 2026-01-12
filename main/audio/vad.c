@@ -23,8 +23,8 @@
 #define VAD_MAX_SPEECH_SAMPLES   24000
 
 // Number of consecutive non-speech frames required to decide speech has ended.
-// 8 frames @ 10 ms ≈ 80 ms hangover.
-#define VAD_HANGOVER_FRAMES      10
+// 39 frames @ 10 ms ≈ 300 ms hangover.
+#define VAD_HANGOVER_FRAMES      30
 
 // Size of internal buffer for accumulating a speech segment.
 // Must be >= VAD_MAX_SPEECH_SAMPLES.
