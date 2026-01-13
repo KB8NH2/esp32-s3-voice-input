@@ -9,6 +9,7 @@
 #include "esp_log.h"
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
@@ -20,13 +21,51 @@ typedef enum { PTT_EVENT_NONE = 0, PTT_EVENT_VAD_END } ptt_event_t;
 static QueueHandle_t s_ptt_event_queue = NULL;
 static volatile int s_ptt_listening = 0;
 
+// Argument passed to background and sender STT tasks
+struct stt_task_arg {
+    int16_t *buf;
+    size_t samples;
+};
+
 // VAD -> PTT notifier
+// forward declarations for background STT/wake-word handling
+static void stt_bg_task(void *v);
+static int is_wake_word(const char *text);
+
 static void vad_ptt_notify_cb(const int16_t *samples, size_t count)
 {
-    (void)samples; (void)count;
-    if (s_ptt_event_queue) {
-        ptt_event_t ev = PTT_EVENT_VAD_END;
-        xQueueSend(s_ptt_event_queue, &ev, 0);
+    // If we're currently in PTT listening mode, notify the PTT task to
+    // stop and send (VAD END). Otherwise, treat the VAD segment as a
+    // potential wake-word and run STT on it in the background.
+    if (s_ptt_listening) {
+        if (s_ptt_event_queue) {
+            ptt_event_t ev = PTT_EVENT_VAD_END;
+            xQueueSend(s_ptt_event_queue, &ev, 0);
+        }
+        return;
+    }
+
+    // Not in PTT mode — spawn background STT task to check for wake-word.
+    if (count == 0 || samples == NULL) return;
+
+    // Make a heap copy of the VAD-captured samples for the STT task.
+    int16_t *buf = malloc(count * sizeof(int16_t));
+    if (!buf) return;
+    memcpy(buf, samples, count * sizeof(int16_t));
+
+    struct stt_task_arg *arg = malloc(sizeof(*arg));
+    if (!arg) {
+        free(buf);
+        return;
+    }
+    arg->buf = buf;
+    arg->samples = count;
+
+    // Use a separate task variant that will check for wake-word.
+    BaseType_t ok = xTaskCreatePinnedToCore(stt_bg_task, "stt_bg", 12288, arg, 5, NULL, 1);
+    if (ok != pdTRUE) {
+        free(arg->buf);
+        free(arg);
     }
 }
 
@@ -34,12 +73,6 @@ static void vad_ptt_notify_cb(const int16_t *samples, size_t count)
 static void on_stt_result(const char *text);
 static void on_conversation_reply(const char *reply_text);
 static void ptt_task(void *arg);
-
-// Argument passed to the STT sender task
-struct stt_task_arg {
-    int16_t *buf;
-    size_t samples;
-};
 
 static void stt_sender_task(void *v)
 {
@@ -52,6 +85,74 @@ static void stt_sender_task(void *v)
         free(resp);
     } else {
         ESP_LOGW(TAG, "stt_send_wav_multipart returned NULL");
+    }
+    free(a);
+    vTaskDelete(NULL);
+}
+
+// Background STT task for wake-word detection. It sends the captured
+// VAD segment to STT and, if the result matches a wake-word, triggers
+// the PTT listening flow (start capture / set LED / set flag).
+static int is_wake_word(const char *text)
+{
+    if (!text) return 0;
+
+    size_t len = strlen(text);
+    char *clean = malloc(len + 1);
+    if (!clean) return 0;
+
+    size_t ci = 0;
+    int prev_space = 0;
+    for (size_t i = 0; i < len; ++i) {
+        unsigned char c = (unsigned char)text[i];
+        if (isalnum(c)) {
+            clean[ci++] = tolower(c);
+            prev_space = 0;
+        } else if (isspace(c)) {
+            if (!prev_space && ci > 0) {
+                clean[ci++] = ' ';
+                prev_space = 1;
+            }
+        } else {
+            // punctuation: treat like a separator
+            if (!prev_space && ci > 0) {
+                clean[ci++] = ' ';
+                prev_space = 1;
+            }
+        }
+    }
+    // trim trailing space
+    if (ci > 0 && clean[ci - 1] == ' ') ci--;
+    clean[ci] = '\0';
+
+    const char *wakes[] = { "hello computer", "hey computer", "okay computer", NULL };
+    int found = 0;
+    for (int i = 0; wakes[i]; ++i) {
+        if (strcmp(clean, wakes[i]) == 0) { found = 1; break; }
+    }
+    free(clean);
+    return found;
+}
+
+static void stt_bg_task(void *v)
+{
+    struct stt_task_arg *a = (struct stt_task_arg *)v;
+    ESP_LOGI(TAG, "stt_bg: calling stt_send_wav_multipart samples=%u", (unsigned)a->samples);
+    char *resp = stt_send_wav_multipart(a->buf, a->samples);
+    free(a->buf);
+    if (resp) {
+        if (strlen(resp) > 0) {
+            ESP_LOGI(TAG, "stt_bg: '%s'", resp);
+            if (is_wake_word(resp)) {
+                ESP_LOGI(TAG, "Wake-word detected -> entering LISTEN mode");
+                mic_start_capture();
+                led_ring_set_color(0, 0, 64);
+                s_ptt_listening = 1;
+            }
+        }
+        free(resp);
+    } else {
+        ESP_LOGW(TAG, "stt_send_wav_multipart (bg) returned NULL");
     }
     free(a);
     vTaskDelete(NULL);
@@ -145,6 +246,13 @@ static void ptt_task(void *arg)
         bool pressed_edge = pressed && !last_pressed; // detect press event
         last_pressed = pressed;
 
+        // If another context (wake-word) started capture by setting
+        // `s_ptt_listening`, bring the state machine into LISTENING so
+        // VAD END events are processed correctly.
+        if (s_ptt_listening && state == STATE_IDLE) {
+            state = STATE_LISTENING;
+        }
+
         switch (state) {
         case STATE_IDLE:
             if (pressed_edge) {
@@ -194,6 +302,6 @@ static void on_stt_result(const char *text)
 // Conversation → HA TTS
 static void on_conversation_reply(const char *reply_text)
 {
-    ESP_LOGI(TAG, "Conversation Server Reply: \"%s\"", reply_text);
+    ESP_LOGI(TAG, "Conversation Server Reply: %s", reply_text);
     //piper_tts_synthesize(reply_text);
 }
