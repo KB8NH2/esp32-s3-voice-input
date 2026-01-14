@@ -19,20 +19,10 @@ dependencies:
       type: service
     version: 1.1.0
   espressif/esp_audio_simple_player:
-    component_hash: 
-      3594a51023ecf4b02b7c23071e7eb023da13eaa2cfbec53ea2eb4acdce5fe5b8
-    dependencies:
-    - name: espressif/gmf_audio
-      registry_url: https://components.espressif.com
-      require: private
-      version: ^0.7
-    - name: espressif/gmf_io
-      registry_url: https://components.espressif.com
-      require: private
-      version: ^0.7
+    dependencies: []
     source:
-      registry_url: https://components.espressif.com/
-      type: service
+      path: C:\Users\Jim\esp32s3\components\espressif__esp_audio_simple_player
+      type: local
     version: 0.9.5
   espressif/esp_codec_dev:
     component_hash: 
@@ -47,7 +37,7 @@ dependencies:
     version: 1.5.4
   espressif/esp_io_expander:
     component_hash: 
-      abf3ea0d71407d79d15500550aa3ba433848459b0fa94717cf9478822593ee5d
+      034903704f65e3994d7cce9d080b19d89525cf6d416574b932826adf680f3942
     dependencies:
     - name: idf
       require: private
@@ -55,7 +45,7 @@ dependencies:
     source:
       registry_url: https://components.espressif.com
       type: service
-    version: 1.1.0
+    version: 1.2.0
   espressif/esp_io_expander_tca95xx_16bit:
     component_hash: 
       c384d55e429775d6a1eef26512fbc33bc41823745a8c2ad6d5927729f33a2c21
@@ -88,7 +78,7 @@ dependencies:
       require: private
       version: ^0.7
     source:
-      registry_url: https://components.espressif.com
+      registry_url: https://components.espressif.com/
       type: service
     version: 0.7.2
   espressif/gmf_core:
@@ -112,7 +102,7 @@ dependencies:
       require: private
       version: ^0.7
     source:
-      registry_url: https://components.espressif.com
+      registry_url: https://components.espressif.com/
       type: service
     version: 0.7.6
   espressif/led_strip:
@@ -130,10 +120,20 @@ dependencies:
     source:
       type: idf
     version: 5.5.2
+  lvgl/lvgl:
+    dependencies: []
+    source:
+      path: C:\Users\Jim\esp32s3\components\lvgl__lvgl
+      type: local
+    version: 9.3.0
 direct_dependencies:
 - espressif/esp_audio_simple_player
 - espressif/esp_io_expander_tca95xx_16bit
+- espressif/gmf_audio
+- espressif/gmf_io
 - espressif/led_strip
-manifest_hash: 83eb385682ea0962ae596a2f427b1a8f5f0d3830d6a3e0f272325b486991bc59
+- idf
+- lvgl/lvgl
+manifest_hash: dc5495845c8953459f8b9f6d8c4ada5e324fc82d38fb15e415b7ee2569b2c293
 target: esp32s3
 version: 2.0.0

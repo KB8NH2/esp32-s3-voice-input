@@ -1,23 +1,10 @@
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "mic_speech.h"
-#include "vad.h"
-#include "audio_driver.h"
-#include "driver/gpio.h"
-#include "driver/i2s_std.h"
-#include "esp_log.h"
-#include "esp_timer.h"
-#include "freertos/semphr.h"
-#include <stdlib.h>
-#include <math.h>
-#include "esp_heap_caps.h"
+/* Duplicate implementation archived.
+    Original contents moved to: main/speech_det_driver/mic_speech.c.removed
 
-static const char *TAG = "mic_speech";
+    This file is retained as a neutral stub to avoid accidental reintroduction
+    of duplicate symbols during development. */
 
-static void mic_task(void *arg);
-
-i2s_chan_handle_t tx_handle;
-i2s_chan_handle_t rx_handle;
+/* No code here. */
 
 // Capture (push-to-talk)
 static bool s_capture_enabled = false;

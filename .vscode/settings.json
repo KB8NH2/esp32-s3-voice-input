@@ -15,6 +15,6 @@
   "clangd.arguments": [
     "--background-index",
     "--query-driver=**",
-    "--compile-commands-dir=c:\\Users\\Jim\\Downloads\\ESP32-S3\\ESP32-S3-AUDIO-Board-Demo\\ESP-IDF\\lvgl9_3_example_04\\build"
+    "--compile-commands-dir=c:\\Users\\Jim\\ESP32S3\\build"
   ]
 }

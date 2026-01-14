@@ -1,0 +1,16 @@
+{
+  "terminal.integrated.profiles.windows": {
+    "ESP-IDF PowerShell": {
+      "path": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "args": [
+        "-NoExit",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        "& 'C:\\Users\\Jim\\esp\\v5.5.2\\esp-idf\\export.ps1'"
+      ],
+      "icon": "terminal-powershell"
+    }
+  },
+  "terminal.integrated.defaultProfile.windows": "ESP-IDF PowerShell"
+}

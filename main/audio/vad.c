@@ -12,7 +12,7 @@
 // Energy is average of squares (RMS^2).
 // For your audio, noise/music ~1e5–2e5, speech ~4e5–1e6+.
 // Start at 300k and adjust if needed.
-#define VAD_ENERGY_THRESHOLD     2000000ULL
+#define VAD_ENERGY_THRESHOLD     3000000ULL
 
 // Minimum speech duration before firing callback (in samples).
 // 12000 samples @ 16 kHz ≈ 300 ms.
@@ -23,8 +23,8 @@
 #define VAD_MAX_SPEECH_SAMPLES   24000
 
 // Number of consecutive non-speech frames required to decide speech has ended.
-// 39 frames @ 10 ms ≈ 300 ms hangover.
-#define VAD_HANGOVER_FRAMES      30
+// 80 frames @ 10 ms ≈ 800 ms hangover.
+#define VAD_HANGOVER_FRAMES      80
 
 // Size of internal buffer for accumulating a speech segment.
 // Must be >= VAD_MAX_SPEECH_SAMPLES.

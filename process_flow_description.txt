@@ -1,0 +1,48 @@
+Summary — processing flow in this app (based on main.c)
+
+Boot / init:
+
+app_main() starts: logs boot, calls wifi_init() and wifi_wait_connected().
+Calls Speech_Init() to initialize audio subsystem (mic + speaker / audio driver).
+Creates PTT event queue (s_ptt_event_queue) and registers VAD callback vad_ptt_notify_cb.
+Starts the push-to-talk state-machine task ptt_task (pinned to core 1).
+Initializes Conversation API with conversation_init(...) and sets reply callback conversation_set_callback(on_conversation_reply).
+VAD & PTT notification:
+
+vad_ptt_notify_cb(...) runs in VAD context and posts PTT_EVENT_VAD_END to s_ptt_event_queue.
+Push-to-talk state machine (ptt_task):
+
+Runs an infinite loop with states: IDLE → LISTENING → PROCESSING → PLAYING_TTS.
+Polls a hardware key via debounce_key3() to detect press edges (toggle start/stop listening).
+On press in IDLE: calls mic_start_capture(), sets LED ring color, sets s_ptt_listening=1, enters LISTENING.
+While LISTENING: if press-edge or VAD_END event received from queue, it stops capture and proceeds to processing:
+On VAD_END: vad_ptt_notify_cb caused queue event; ptt_task sets s_ptt_listening=0 and calls ptt_stop_and_send().
+Stopping capture & STT upload (ptt_stop_and_send):
+
+Calls mic_stop_capture() and led_ring_clear().
+Calls mic_take_captured_buffer(&samples) to obtain recorded audio buffer and sample count.
+If audio exists, allocates an stt_task_arg and spawns stt_sender_task (large stack, pinned to core 1) to upload audio; otherwise logs warning.
+STT sender (stt_sender_task):
+
+Calls stt_send_wav_multipart(buf, samples) to perform Whisper/STT upload.
+On receiving STT response string, calls on_stt_result(resp) and frees resources; then deletes itself.
+STT → Conversation:
+
+on_stt_result(const char *text) logs the text and calls conversation_send(text) to send recognized text to the Conversation server.
+Conversation → TTS:
+
+on_conversation_reply(const char *reply_text) is the Conversation callback; it currently logs the reply and has piper_tts_synthesize(reply_text) commented out (intended TTS synthesis / playback).
+Concurrency & design notes:
+
+VAD signals are delivered via a FreeRTOS queue to avoid doing heavy work in the VAD callback.
+Audio upload is offloaded to a separate FreeRTOS task to avoid stack exhaustion and keep ptt_task responsive.
+s_ptt_listening is a volatile flag used by other code (e.g., UI/LED) to know capture state.
+TTS playback path is present but not currently invoked in the code (callback commented).
+
+Added Wake-Word detection 1/13/2026 12:30
+Behavior summary:
+
+Background VAD segments are checked by Whisper for wake-words.
+If a wake-word is found, the device immediately starts regular LISTEN mode (LED + mic capture).
+When that LISTEN capture ends (press toggle or VAD end), captured audio is sent to Whisper and forwarded to the conversation server as before.
+The initial wake-word utterance is used only to trigger LISTEN; it is not forwarded to conversation.

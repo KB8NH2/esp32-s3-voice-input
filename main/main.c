@@ -150,6 +150,9 @@ static void stt_bg_task(void *v)
                 s_ptt_listening = 1;
             }
         }
+        else {
+            ESP_LOGI(TAG, "stt_bg: empty result");
+        }
         free(resp);
     } else {
         ESP_LOGW(TAG, "stt_send_wav_multipart (bg) returned NULL");

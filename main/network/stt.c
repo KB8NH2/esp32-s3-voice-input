@@ -302,82 +302,83 @@ char *stt_send_wav_multipart(const int16_t *pcm_data, size_t pcm_samples)
     resp_buf[total] = '\0';
     close(sock);
 
+    /*
     ESP_LOGI(TAG, "HTTP response (%d bytes): %s", total, resp_buf);
-        // Helper: extract body and decode chunked transfer if present
-        char *body = NULL;
-        char *hdr_end = NULL;
-        if (total > 4) hdr_end = strstr(resp_buf, "\r\n\r\n");
-        int resp_header_len = hdr_end ? (int)(hdr_end - resp_buf) : 0;
-        char *headers_lower = NULL;
-        int is_chunked = 0;
-        if (resp_header_len > 0) {
-            headers_lower = malloc(resp_header_len + 1);
-            if (headers_lower) {
-                for (int i = 0; i < resp_header_len; ++i) headers_lower[i] = tolower((unsigned char)resp_buf[i]);
-                headers_lower[resp_header_len] = '\0';
-                if (strstr(headers_lower, "transfer-encoding: chunked") != NULL) is_chunked = 1;
-            }
+    */
+    // Helper: extract body and decode chunked transfer if present
+    char *body = NULL;
+    char *hdr_end = NULL;
+    if (total > 4) hdr_end = strstr(resp_buf, "\r\n\r\n");
+    int resp_header_len = hdr_end ? (int)(hdr_end - resp_buf) : 0;
+    char *headers_lower = NULL;
+    int is_chunked = 0;
+    if (resp_header_len > 0) {
+        headers_lower = malloc(resp_header_len + 1);
+        if (headers_lower) {
+            for (int i = 0; i < resp_header_len; ++i) headers_lower[i] = tolower((unsigned char)resp_buf[i]);
+            headers_lower[resp_header_len] = '\0';
+            if (strstr(headers_lower, "transfer-encoding: chunked") != NULL) is_chunked = 1;
         }
-
-        if (is_chunked && hdr_end) {
-            // Decode chunked body starting after header end
-            char *p = hdr_end + 4;
-            int remaining = total - (int)(p - resp_buf);
-            // allocate output buffer conservatively
-            char *out = malloc(remaining + 1);
-            if (!out) {
-                free(headers_lower);
-                return NULL;
-            }
-            int out_len = 0;
-            while (remaining > 0) {
-                // read chunk size line
-                char *eol = memchr(p, '\r', remaining);
-                if (!eol) break;
-                int line_len = (int)(eol - p);
-                char tmp[32] = {0};
-                int copy_len = line_len < (int)sizeof(tmp)-1 ? line_len : (int)sizeof(tmp)-1;
-                memcpy(tmp, p, copy_len);
-                tmp[copy_len] = '\0';
-                unsigned int chunk_size = (unsigned int)strtoul(tmp, NULL, 16);
-                if (chunk_size == 0) break;
-                // move p past CRLF
-                if (remaining < line_len + 2) break;
-                p += line_len + 2; remaining -= line_len + 2;
-                if (remaining < (int)chunk_size) break;
-                memcpy(out + out_len, p, chunk_size);
-                out_len += chunk_size;
-                p += chunk_size;
-                remaining -= chunk_size;
-                // skip trailing CRLF after chunk
-                if (remaining >= 2) { p += 2; remaining -= 2; } else break;
-            }
-            out[out_len] = '\0';
-            body = out;
-        } else if (hdr_end) {
-            // Not chunked: return everything after headers (may include full body)
-            char *p = hdr_end + 4;
-            int body_len = total - (int)(p - resp_buf);
-            body = malloc(body_len + 1);
-            if (body) {
-                memcpy(body, p, body_len);
-                body[body_len] = '\0';
-            }
-        } else {
-            // No headers found — return whole response
-            body = malloc(total + 1);
-            if (body) {
-                memcpy(body, resp_buf, total);
-                body[total] = '\0';
-            }
+    }
+    if (is_chunked && hdr_end) {
+        // Decode chunked body starting after header end
+        char *p = hdr_end + 4;
+        int remaining = total - (int)(p - resp_buf);
+        // allocate output buffer conservatively
+        char *out = malloc(remaining + 1);
+        if (!out) {
+            free(headers_lower);
+            return NULL;
         }
-        free(headers_lower);
-        // Trim trailing CR/LF
+        int out_len = 0;
+        while (remaining > 0) {
+            // read chunk size line
+            char *eol = memchr(p, '\r', remaining);
+            if (!eol) break;
+            int line_len = (int)(eol - p);
+            char tmp[32] = {0};
+            int copy_len = line_len < (int)sizeof(tmp)-1 ? line_len : (int)sizeof(tmp)-1;
+            memcpy(tmp, p, copy_len);
+            tmp[copy_len] = '\0';
+            unsigned int chunk_size = (unsigned int)strtoul(tmp, NULL, 16);
+            if (chunk_size == 0) break;
+            // move p past CRLF
+            if (remaining < line_len + 2) break;
+            p += line_len + 2; remaining -= line_len + 2;
+            if (remaining < (int)chunk_size) break;
+            memcpy(out + out_len, p, chunk_size);
+            out_len += chunk_size;
+            p += chunk_size;
+            remaining -= chunk_size;
+            // skip trailing CRLF after chunk
+            if (remaining >= 2) { p += 2; remaining -= 2; } else break;
+        }
+        out[out_len] = '\0';
+        body = out;
+    } else if (hdr_end) {
+        // Not chunked: return everything after headers (may include full body)
+        char *p = hdr_end + 4;
+        int body_len = total - (int)(p - resp_buf);
+        body = malloc(body_len + 1);
         if (body) {
-            int bl = strlen(body);
-            while (bl > 0 && (body[bl-1] == '\n' || body[bl-1] == '\r')) { body[--bl] = '\0'; }
+            memcpy(body, p, body_len);
+            body[body_len] = '\0';
         }
-        return body;
+    } else {
+        // No headers found — return whole response
+        body = malloc(total + 1);
+        if (body) {
+            memcpy(body, resp_buf, total);
+            body[total] = '\0';
+        }
+    }
+    free(headers_lower);
+    // Trim trailing CR/LF
+    if (body) {
+        int bl = strlen(body);
+        while (bl > 0 && (body[bl-1] == '\n' || body[bl-1] == '\r')) { body[--bl] = '\0'; }
+    }
+    return body;
 }
 
 // write_all_with_timeout removed; socket-based implementation used instead

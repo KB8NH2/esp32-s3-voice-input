@@ -1,0 +1,21 @@
+/* Archived duplicate of mic_speech.c — renamed to avoid duplicate build units.
+   Original contents preserved here. */
+
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "mic_speech.h"
+#include "vad.h"
+#include "audio_driver.h"
+#include "driver/gpio.h"
+#include "driver/i2s_std.h"
+#include "esp_log.h"
+#include "esp_timer.h"
+#include "freertos/semphr.h"
+#include <stdlib.h>
+#include <math.h>
+#include "esp_heap_caps.h"
+
+static const char *TAG = "mic_speech";
+
+/* ... original file archived ... */
+
