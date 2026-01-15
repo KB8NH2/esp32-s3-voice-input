@@ -20,7 +20,7 @@ void conversation_init(const char *url)
 {
     strncpy(s_conv_url, url, sizeof(s_conv_url));
     s_conv_url[sizeof(s_conv_url) - 1] = '\0';
-    ESP_LOGI(TAG, "Conversation API URL: %s", s_conv_url);
+    ESP_LOGD(TAG, "Conversation API URL: %s", s_conv_url);
 }
 
 void conversation_set_callback(conversation_reply_callback_t cb)
@@ -61,7 +61,7 @@ static esp_err_t _http_event_handler(esp_http_client_event_t *evt)
 
 void conversation_send(const char *user_text)
 {
-    ESP_LOGI(TAG, "Sending to Conversation Server: \"%s\"", user_text);
+    ESP_LOGD(TAG, "Sending to Conversation Server: \"%s\"", user_text);
 
     esp_http_client_config_t cfg = {
         .url = s_conv_url,
@@ -88,7 +88,7 @@ void conversation_send(const char *user_text)
     char body[512];
     snprintf(body, sizeof(body),
              "{\"input\": \"%s\"}", clean);
-    ESP_LOGI(TAG, "Sending to Conversation Server (full body): %s", body);
+    ESP_LOGD(TAG, "Sending to Conversation Server (full body): %s", body);
 
     esp_http_client_set_post_field(client, body, strlen(body));
 

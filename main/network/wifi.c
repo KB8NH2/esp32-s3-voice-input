@@ -75,7 +75,7 @@ void wifi_init(void)
     esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
     esp_wifi_start();
 
-    ESP_LOGI(TAG, "Wi-Fi init done");
+    ESP_LOGD(TAG, "Wi-Fi init done");
 }
 
 void wifi_wait_connected(void)

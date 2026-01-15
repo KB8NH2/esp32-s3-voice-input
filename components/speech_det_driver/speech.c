@@ -5,5 +5,5 @@ static const char *TAG = "speech";
 
 void speech_init(void)
 {
-    ESP_LOGI(TAG, "speech_init (stub)");
+    ESP_LOGD(TAG, "speech_init (stub)");
 }

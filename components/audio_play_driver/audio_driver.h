@@ -24,6 +24,10 @@ bool audio_driver_es7210_is_tdm(void);
 // Key handling
 bool key3_pressed(void);
 bool debounce_key3(void);
+bool key1_pressed(void);
+bool debounce_key1(void);
+bool key2_pressed(void);
+bool debounce_key2(void);
 
 // LED ring control (WS281x)
 void led_ring_set_color(uint8_t r, uint8_t g, uint8_t b);

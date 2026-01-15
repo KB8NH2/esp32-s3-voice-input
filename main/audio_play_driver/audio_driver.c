@@ -110,13 +110,13 @@ bool audio_driver_es7210_is_tdm(void)
 // --------------------------
 static void i2c_scan_bus(i2c_master_bus_handle_t bus)
 {
-    ESP_LOGI(TAG, "Starting I2C scan on this bus...");
+    ESP_LOGD(TAG, "Starting I2C scan on this bus...");
     for (int addr = 0x03; addr < 0x78; addr++) {
         if (i2c_master_probe(bus, addr, 20) == ESP_OK) {
-            ESP_LOGW(TAG, "I2C device found at 0x%02X", addr);
+            ESP_LOGD(TAG, "I2C device found at 0x%02X", addr);
         }
     }
-    ESP_LOGI(TAG, "I2C scan complete");
+    ESP_LOGD(TAG, "I2C scan complete");
 }
 
 // ES8311
@@ -162,7 +162,7 @@ static esp_err_t es7210_update_reg_bit(uint8_t reg, uint8_t mask, uint8_t val)
 // --------------------------
 static esp_err_t es8311_init_codec(void)
 {
-    ESP_LOGI(TAG, "Initializing ES8311 DAC...");
+    ESP_LOGD(TAG, "Initializing ES8311 DAC...");
 
     // Reset
     ESP_ERROR_CHECK(es8311_write_reg(0x00, 0x3F));
@@ -201,13 +201,13 @@ static esp_err_t es8311_init_codec(void)
     // Instrumentation
     uint8_t reg;
     es8311_read_reg(0x02, &reg);
-    ESP_LOGI(TAG, "ES8311 REG02 (ADC power) = 0x%02X", reg);
+    ESP_LOGD(TAG, "ES8311 REG02 (ADC power) = 0x%02X", reg);
     es8311_read_reg(0x1A, &reg);
-    ESP_LOGI(TAG, "ES8311 REG1A (MICBIAS) = 0x%02X", reg);
+    ESP_LOGD(TAG, "ES8311 REG1A (MICBIAS) = 0x%02X", reg);
     es8311_read_reg(0x23, &reg);
-    ESP_LOGI(TAG, "ES8311 REG23 (PGA gain) = 0x%02X", reg);
+    ESP_LOGD(TAG, "ES8311 REG23 (PGA gain) = 0x%02X", reg);
 
-    ESP_LOGI(TAG, "ES8311 initialized");
+    ESP_LOGD(TAG, "ES8311 initialized");
     return ESP_OK;
 }
 
@@ -221,7 +221,7 @@ static esp_err_t es8311_init_codec(void)
 // --------------------------
 static esp_err_t es7210_init_adc(void)
 {
-    ESP_LOGI(TAG, "Initializing ES7210 ADC...");
+    ESP_LOGD(TAG, "Initializing ES7210 ADC...");
 
     // Soft reset sequence (similar to start/open behavior)
     ESP_ERROR_CHECK(es7210_write_reg(ES7210_RESET_REG00, 0x71));
@@ -247,7 +247,7 @@ static esp_err_t es7210_init_adc(void)
     iface &= 0x1F;          // keep low 5 bits
     iface |= 0x80;          // bits = 32 -> add 0x80
     ESP_ERROR_CHECK(es7210_write_reg(ES7210_SDP_INTERFACE1_REG11, iface));
-    ESP_LOGI(TAG, "ES7210: set bits per sample = 32");
+    ESP_LOGD(TAG, "ES7210: set bits per sample = 32");
 
     // Format: I2S normal (ES_I2S_NORMAL) via es7210_config_fmt logic
     ESP_ERROR_CHECK(es7210_read_reg(ES7210_SDP_INTERFACE1_REG11, &iface));
@@ -283,7 +283,7 @@ static esp_err_t es7210_init_adc(void)
 
     // Enable MIC1 & MIC2 with gain, mirroring es7210_mic_select/_set_channel_gain behavior
     // Enable MIC1
-    ESP_LOGI(TAG, "Enable ES7210_INPUT_MIC1");
+    ESP_LOGD(TAG, "Enable ES7210_INPUT_MIC1");
     // Clear clock-off bits for MIC1/2 (0x0B mask)
     ESP_ERROR_CHECK(es7210_update_reg_bit(ES7210_CLOCK_OFF_REG01, 0x0B, 0x00));
     ESP_ERROR_CHECK(es7210_write_reg(ES7210_MIC12_POWER_REG4B, 0x00));   // power MIC1/2 path
@@ -292,7 +292,7 @@ static esp_err_t es7210_init_adc(void)
     ESP_ERROR_CHECK(es7210_update_reg_bit(ES7210_MIC1_GAIN_REG43, 0x0F, 0x0C)); // ~12 dB
 
     // Enable MIC2
-    ESP_LOGI(TAG, "Enable ES7210_INPUT_MIC2");
+    ESP_LOGD(TAG, "Enable ES7210_INPUT_MIC2");
     ESP_ERROR_CHECK(es7210_update_reg_bit(ES7210_CLOCK_OFF_REG01, 0x0B, 0x00));
     ESP_ERROR_CHECK(es7210_write_reg(ES7210_MIC12_POWER_REG4B, 0x00));   // ensure MIC1/2 path on
     ESP_ERROR_CHECK(es7210_update_reg_bit(ES7210_MIC2_GAIN_REG44, 0x10, 0x10)); // enable gain
@@ -313,14 +313,14 @@ static esp_err_t es7210_init_adc(void)
     es7210_read_reg(ES7210_CLOCK_OFF_REG01, &r1);
     es7210_read_reg(ES7210_POWER_DOWN_REG06, &r2);
     es7210_read_reg(ES7210_ANALOG_REG40, &r40);
-    ESP_LOGI(TAG, "ES7210 CLOCK_OFF=0x%02X PWDN=0x%02X ANALOG40=0x%02X", r1, r2, r40);
+    ESP_LOGD(TAG, "ES7210 CLOCK_OFF=0x%02X PWDN=0x%02X ANALOG40=0x%02X", r1, r2, r40);
 
     uint8_t mic1g, mic2g;
     es7210_read_reg(ES7210_MIC1_GAIN_REG43, &mic1g);
     es7210_read_reg(ES7210_MIC2_GAIN_REG44, &mic2g);
-    ESP_LOGI(TAG, "ES7210 MIC1_GAIN=0x%02X MIC2_GAIN=0x%02X", mic1g, mic2g);
+    ESP_LOGD(TAG, "ES7210 MIC1_GAIN=0x%02X MIC2_GAIN=0x%02X", mic1g, mic2g);
 
-    ESP_LOGI(TAG, "ES7210 ADC initialized");
+    ESP_LOGD(TAG, "ES7210 ADC initialized");
     return ESP_OK;
 }
 
@@ -397,7 +397,7 @@ esp_err_t audio_driver_init(i2s_chan_handle_t *tx_handle_out,
         .flags = { .enable_internal_pullup = 1 },
     };
 
-    ESP_LOGI(TAG, "Creating I2C bus...");
+    ESP_LOGD(TAG, "Creating I2C bus...");
     ESP_ERROR_CHECK(i2c_new_master_bus(&bus_cfg, &i2c_bus));
 
     i2c_device_config_t es8311_cfg = {
@@ -409,24 +409,24 @@ esp_err_t audio_driver_init(i2s_chan_handle_t *tx_handle_out,
         .scl_speed_hz = ES_I2C_FREQ_HZ,
     };
 
-    ESP_LOGI(TAG, "Adding ES8311 device...");
+    ESP_LOGD(TAG, "Adding ES8311 device...");
     ESP_ERROR_CHECK(i2c_master_bus_add_device(i2c_bus, &es8311_cfg, &es8311_dev));
 
-    ESP_LOGI(TAG, "Adding ES7210 device...");
+    ESP_LOGD(TAG, "Adding ES7210 device...");
     ESP_ERROR_CHECK(i2c_master_bus_add_device(i2c_bus, &es7210_cfg, &es7210_dev));
 
-    ESP_LOGI(TAG, "Probing ES8311...");
+    ESP_LOGD(TAG, "Probing ES8311...");
     ESP_ERROR_CHECK(i2c_master_probe(i2c_bus, ES8311_ADDR, 100));
 
-    ESP_LOGI(TAG, "Probing ES7210...");
+    ESP_LOGD(TAG, "Probing ES7210...");
     ESP_ERROR_CHECK(i2c_master_probe(i2c_bus, ES7210_ADDR, 100));
 
     i2c_scan_bus(i2c_bus);
 
-    ESP_LOGI(TAG, "Initializing ES8311 codec (DAC)...");
+    ESP_LOGD(TAG, "Initializing ES8311 codec (DAC)...");
     ESP_ERROR_CHECK(es8311_init_codec());
 
-    ESP_LOGI(TAG, "Initializing ES7210 codec (ADC)...");
+    ESP_LOGD(TAG, "Initializing ES7210 codec (ADC)...");
     ESP_ERROR_CHECK(es7210_init_adc());
 
 
@@ -450,7 +450,7 @@ esp_err_t audio_driver_init(i2s_chan_handle_t *tx_handle_out,
     };
     if (LED_STRIP_GPIO_PIN >= 0 && LED_STRIP_LED_COUNT > 0) {
         if (led_strip_new_rmt_device(&strip_config, &rmt_config, &s_led_strip) == ESP_OK) {
-            ESP_LOGI(TAG, "LED ring initialized on GPIO %d (%d LEDs)", LED_STRIP_GPIO_PIN, LED_STRIP_LED_COUNT);
+            ESP_LOGD(TAG, "LED ring initialized on GPIO %d (%d LEDs)", LED_STRIP_GPIO_PIN, LED_STRIP_LED_COUNT);
             led_strip_clear(s_led_strip);
             led_strip_refresh(s_led_strip);
         } else {
@@ -481,7 +481,7 @@ esp_err_t audio_driver_init(i2s_chan_handle_t *tx_handle_out,
     i2s_chan_handle_t tx_handle;
     i2s_chan_handle_t rx_handle;
 
-    ESP_LOGI(TAG, "Creating I2S channels...");
+    ESP_LOGD(TAG, "Creating I2S channels...");
     ESP_ERROR_CHECK(i2s_new_channel(&chan_cfg, &tx_handle, &rx_handle));
 
 
@@ -507,7 +507,7 @@ esp_err_t audio_driver_init(i2s_chan_handle_t *tx_handle_out,
         },
     };
 
-    ESP_LOGI(TAG, "Initializing I2S RX (ES7210)...");
+    ESP_LOGD(TAG, "Initializing I2S RX (ES7210)...");
     ESP_ERROR_CHECK(i2s_channel_init_std_mode(rx_handle, &rx_cfg));
 
 
@@ -533,7 +533,7 @@ esp_err_t audio_driver_init(i2s_chan_handle_t *tx_handle_out,
         },
     };
 
-    ESP_LOGI(TAG, "Initializing I2S TX (ES8311)...");
+    ESP_LOGD(TAG, "Initializing I2S TX (ES8311)...");
     ESP_ERROR_CHECK(i2s_channel_init_std_mode(tx_handle, &tx_cfg));
 
     /* Reconfigure clocks now that channels exist */
@@ -551,10 +551,10 @@ esp_err_t audio_driver_init(i2s_chan_handle_t *tx_handle_out,
     //
     // --- ENABLE CHANNELS ---
     //
-    ESP_LOGI(TAG, "Enabling I2S RX...");
+    ESP_LOGD(TAG, "Enabling I2S RX...");
     ESP_ERROR_CHECK(i2s_channel_enable(rx_handle));
 
-    ESP_LOGI(TAG, "Enabling I2S TX...");
+    ESP_LOGD(TAG, "Enabling I2S TX...");
     ESP_ERROR_CHECK(i2s_channel_enable(tx_handle));
 
     
@@ -572,7 +572,7 @@ esp_err_t audio_driver_init(i2s_chan_handle_t *tx_handle_out,
     *tx_handle_out = tx_handle;
     *rx_handle_out = rx_handle;
 
-    ESP_LOGI(TAG, "Audio driver initialized successfully");
+    ESP_LOGD(TAG, "Audio driver initialized successfully");
     return ESP_OK;
 }
 

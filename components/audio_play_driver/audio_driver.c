@@ -112,13 +112,13 @@ bool audio_driver_es7210_is_tdm(void)
 // --------------------------
 static void i2c_scan_bus(i2c_master_bus_handle_t bus)
 {
-    ESP_LOGI(TAG, "Starting I2C scan on this bus...");
+    ESP_LOGD(TAG, "Starting I2C scan on this bus...");
     for (int addr = 0x03; addr < 0x78; addr++) {
         if (i2c_master_probe(bus, addr, 20) == ESP_OK) {
-            ESP_LOGW(TAG, "I2C device found at 0x%02X", addr);
+            ESP_LOGD(TAG, "I2C device found at 0x%02X", addr);
         }
     }
-    ESP_LOGI(TAG, "I2C scan complete");
+    ESP_LOGD(TAG, "I2C scan complete");
 }
 
 // ES8311
@@ -164,7 +164,7 @@ static esp_err_t es7210_update_reg_bit(uint8_t reg, uint8_t mask, uint8_t val)
 // --------------------------
 static esp_err_t es8311_init_codec(void)
 {
-    ESP_LOGI(TAG, "Initializing ES8311 DAC...");
+    ESP_LOGD(TAG, "Initializing ES8311 DAC...");
 
     // Reset
     ESP_ERROR_CHECK(es8311_write_reg(0x00, 0x3F));
@@ -203,13 +203,13 @@ static esp_err_t es8311_init_codec(void)
     // Instrumentation
     uint8_t reg;
     es8311_read_reg(0x02, &reg);
-    ESP_LOGI(TAG, "ES8311 REG02 (ADC power) = 0x%02X", reg);
+    ESP_LOGD(TAG, "ES8311 REG02 (ADC power) = 0x%02X", reg);
     es8311_read_reg(0x1A, &reg);
-    ESP_LOGI(TAG, "ES8311 REG1A (MICBIAS) = 0x%02X", reg);
+    ESP_LOGD(TAG, "ES8311 REG1A (MICBIAS) = 0x%02X", reg);
     es8311_read_reg(0x23, &reg);
-    ESP_LOGI(TAG, "ES8311 REG23 (PGA gain) = 0x%02X", reg);
+    ESP_LOGD(TAG, "ES8311 REG23 (PGA gain) = 0x%02X", reg);
 
-    ESP_LOGI(TAG, "ES8311 initialized");
+    ESP_LOGD(TAG, "ES8311 initialized");
     return ESP_OK;
 }
 // --------------------------
@@ -218,7 +218,7 @@ static esp_err_t es7210_init_adc(void)
 {
     // Enable MIC1 & MIC2 with gain, mirroring es7210_mic_select/_set_channel_gain behavior
     // Enable MIC1
-    ESP_LOGI(TAG, "Enable ES7210_INPUT_MIC1");
+    ESP_LOGD(TAG, "Enable ES7210_INPUT_MIC1");
     // Clear clock-off bits for MIC1/2 (0x0B mask)
     ESP_ERROR_CHECK(es7210_update_reg_bit(ES7210_CLOCK_OFF_REG01, 0x0B, 0x00));
     ESP_ERROR_CHECK(es7210_write_reg(ES7210_MIC12_POWER_REG4B, 0x00));   // power MIC1/2 path
@@ -227,7 +227,7 @@ static esp_err_t es7210_init_adc(void)
     ESP_ERROR_CHECK(es7210_update_reg_bit(ES7210_MIC1_GAIN_REG43, 0x0F, 0x0C)); // ~12 dB
 
     // Enable MIC2
-    ESP_LOGI(TAG, "Enable ES7210_INPUT_MIC2");
+    ESP_LOGD(TAG, "Enable ES7210_INPUT_MIC2");
     ESP_ERROR_CHECK(es7210_update_reg_bit(ES7210_CLOCK_OFF_REG01, 0x0B, 0x00));
     ESP_ERROR_CHECK(es7210_write_reg(ES7210_MIC12_POWER_REG4B, 0x00));   // ensure MIC1/2 path on
     ESP_ERROR_CHECK(es7210_update_reg_bit(ES7210_MIC2_GAIN_REG44, 0x10, 0x10)); // enable gain
@@ -248,14 +248,14 @@ static esp_err_t es7210_init_adc(void)
     es7210_read_reg(ES7210_CLOCK_OFF_REG01, &r1);
     es7210_read_reg(ES7210_POWER_DOWN_REG06, &r2);
     es7210_read_reg(ES7210_ANALOG_REG40, &r40);
-    ESP_LOGI(TAG, "ES7210 CLOCK_OFF=0x%02X PWDN=0x%02X ANALOG40=0x%02X", r1, r2, r40);
+    ESP_LOGD(TAG, "ES7210 CLOCK_OFF=0x%02X PWDN=0x%02X ANALOG40=0x%02X", r1, r2, r40);
 
     uint8_t mic1g, mic2g;
     es7210_read_reg(ES7210_MIC1_GAIN_REG43, &mic1g);
     es7210_read_reg(ES7210_MIC2_GAIN_REG44, &mic2g);
-    ESP_LOGI(TAG, "ES7210 MIC1_GAIN=0x%02X MIC2_GAIN=0x%02X", mic1g, mic2g);
+    ESP_LOGD(TAG, "ES7210 MIC1_GAIN=0x%02X MIC2_GAIN=0x%02X", mic1g, mic2g);
 
-    ESP_LOGI(TAG, "ES7210 ADC initialized");
+    ESP_LOGD(TAG, "ES7210 ADC initialized");
     return ESP_OK;
 }
 
@@ -276,7 +276,7 @@ void tca9555_init(void) {
     uint8_t cfg1[2] = { 0x07, config_val };
     i2c_master_transmit(tca9555_dev, cfg0, sizeof(cfg0), 1000 / portTICK_PERIOD_MS);
     i2c_master_transmit(tca9555_dev, cfg1, sizeof(cfg1), 1000 / portTICK_PERIOD_MS);
-    ESP_LOGI(TAG, "tca9555_init: configured ports 0 and 1 as inputs (0x%02X)", config_val);
+    ESP_LOGD(TAG, "tca9555_init: configured ports 0 and 1 as inputs (0x%02X)", config_val);
 
     // Dump registers for diagnosis with per-register logging and warnings
     {
@@ -298,10 +298,10 @@ void tca9555_init(void) {
                 ok_all = false;
                 ESP_LOGW(TAG, "tca9555: failed to read reg 0x%02X (%s)", reg, esp_err_to_name(err));
             } else {
-                ESP_LOGI(TAG, "tca9555: reg 0x%02X = 0x%02X", reg, regs[r]);
+                ESP_LOGD(TAG, "tca9555: reg 0x%02X = 0x%02X", reg, regs[r]);
             }
         }
-        ESP_LOGI(TAG, "tca9555_regs 0x00..0x07: %02X %02X %02X %02X %02X %02X %02X %02X",
+        ESP_LOGD(TAG, "tca9555_regs 0x00..0x07: %02X %02X %02X %02X %02X %02X %02X %02X",
                  regs[0], regs[1], regs[2], regs[3], regs[4], regs[5], regs[6], regs[7]);
         if (!ok_all) {
             ESP_LOGW(TAG, "tca9555: some register reads failed; verify wiring/address/pull-ups");
@@ -386,7 +386,7 @@ bool key3_pressed(void) {
     // Only log when values or pressed state change to avoid flooding the serial
     if (port0 != prev_p0 || port1 != prev_p1) {
         if (used_raw) {
-            ESP_LOGI(TAG, "tca9555_raw_read: P0=0x%02X P1=0x%02X", port0, port1);
+            ESP_LOGD(TAG, "tca9555_raw_read: P0=0x%02X P1=0x%02X", port0, port1);
         } else {
             ESP_LOGD(TAG, "tca9555_read: P0=0x%02X P1=0x%02X", port0, port1);
         }
@@ -395,7 +395,7 @@ bool key3_pressed(void) {
     }
 
     if (pressed != prev_pressed) {
-        ESP_LOGI(TAG, "key3 state: pressed=%d (P0=0x%02X P1=0x%02X)", (int)pressed, port0, port1);
+        ESP_LOGD(TAG, "key3 state: pressed=%d (P0=0x%02X P1=0x%02X)", (int)pressed, port0, port1);
         prev_pressed = pressed;
     }
 
@@ -416,7 +416,7 @@ bool debounce_key3(void) {
     if (last_change == 0) {
         last_state = current;
         last_change = now;
-        ESP_LOGI(TAG, "debounce_key3: initial state=%d (tick %u)", (int)last_state, (unsigned)now);
+        ESP_LOGD(TAG, "debounce_key3: initial state=%d (tick %u)", (int)last_state, (unsigned)now);
         return last_state;
     }
 
@@ -425,11 +425,146 @@ bool debounce_key3(void) {
         if ((now - last_change) > pdMS_TO_TICKS(100)) {
             last_state = current;
             last_change = now;
-            ESP_LOGI(TAG, "debounce_key3: state change -> %d (port read at tick %u)", (int)last_state, (unsigned)now);
+            ESP_LOGD(TAG, "debounce_key3: state change -> %d (port read at tick %u)", (int)last_state, (unsigned)now);
         } else {
             // record change time but do not yet accept
             last_change = now;
             ESP_LOGD(TAG, "debounce_key3: transient change, waiting (now=%u)", (unsigned)now);
+        }
+    }
+
+    return last_state;
+}
+
+// Key1: similar logic to key3 but mapped to TCA9555 bit 0 (P1_0 / P0_0)
+bool key1_pressed(void) {
+    static uint8_t prev_p0 = 0xFF;
+    static uint8_t prev_p1 = 0xFF;
+    static bool prev_pressed = false;
+
+    uint8_t port0 = tca9555_read_port0();
+    uint8_t port1 = tca9555_read_port1();
+    bool used_raw = false;
+
+    if ((port0 == 0x00 && port1 == 0x00) || (port0 == 0xFF || port1 == 0xFF)) {
+        uint8_t raw0 = 0xEE, raw1 = 0xEE;
+        if (tca9555_raw_read_reg(0x00, &raw0) == ESP_OK) port0 = raw0;
+        if (tca9555_raw_read_reg(0x01, &raw1) == ESP_OK) port1 = raw1;
+        used_raw = true;
+    }
+
+    // Map key1 to expander pin 11 (port1 bit 3). Also check same bit in port0 as fallback.
+    bool pressed_p1 = !(port1 & (1 << 3));
+    bool pressed_p0 = !(port0 & (1 << 3));
+    bool pressed = pressed_p1 || pressed_p0;
+
+    if (port0 != prev_p0 || port1 != prev_p1) {
+        if (used_raw) {
+            ESP_LOGD(TAG, "tca9555_raw_read (key1): P0=0x%02X P1=0x%02X", port0, port1);
+        } else {
+            ESP_LOGD(TAG, "tca9555_read (key1): P0=0x%02X P1=0x%02X", port0, port1);
+        }
+        prev_p0 = port0;
+        prev_p1 = port1;
+    }
+
+    if (pressed != prev_pressed) {
+        ESP_LOGD(TAG, "key1 state: pressed=%d (P0=0x%02X P1=0x%02X)", (int)pressed, port0, port1);
+        prev_pressed = pressed;
+    }
+
+    return pressed;
+}
+
+bool debounce_key1(void) {
+    static uint32_t last_change = 0;
+    static bool last_state = false;
+
+    bool current = key1_pressed();
+    uint32_t now = xTaskGetTickCount();
+
+    if (last_change == 0) {
+        last_state = current;
+        last_change = now;
+        ESP_LOGD(TAG, "debounce_key1: initial state=%d (tick %u)", (int)last_state, (unsigned)now);
+        return last_state;
+    }
+
+    if (current != last_state) {
+        if ((now - last_change) > pdMS_TO_TICKS(100)) {
+            last_state = current;
+            last_change = now;
+            ESP_LOGD(TAG, "debounce_key1: state change -> %d (port read at tick %u)", (int)last_state, (unsigned)now);
+        } else {
+            last_change = now;
+            ESP_LOGD(TAG, "debounce_key1: transient change, waiting (now=%u)", (unsigned)now);
+        }
+    }
+
+    return last_state;
+}
+
+// Key2: mapped to TCA9555 bit 2 (P1_2 / P0_2)
+bool key2_pressed(void) {
+    static uint8_t prev_p0 = 0xFF;
+    static uint8_t prev_p1 = 0xFF;
+    static bool prev_pressed = false;
+
+    uint8_t port0 = tca9555_read_port0();
+    uint8_t port1 = tca9555_read_port1();
+    bool used_raw = false;
+
+    if ((port0 == 0x00 && port1 == 0x00) || (port0 == 0xFF || port1 == 0xFF)) {
+        uint8_t raw0 = 0xEE, raw1 = 0xEE;
+        if (tca9555_raw_read_reg(0x00, &raw0) == ESP_OK) port0 = raw0;
+        if (tca9555_raw_read_reg(0x01, &raw1) == ESP_OK) port1 = raw1;
+        used_raw = true;
+    }
+
+    bool pressed_p1 = !(port1 & (1 << 2));
+    bool pressed_p0 = !(port0 & (1 << 2));
+    bool pressed = pressed_p1 || pressed_p0;
+
+    if (port0 != prev_p0 || port1 != prev_p1) {
+        if (used_raw) {
+            ESP_LOGD(TAG, "tca9555_raw_read (key2): P0=0x%02X P1=0x%02X", port0, port1);
+        } else {
+            ESP_LOGD(TAG, "tca9555_read (key2): P0=0x%02X P1=0x%02X", port0, port1);
+        }
+        prev_p0 = port0;
+        prev_p1 = port1;
+    }
+
+    if (pressed != prev_pressed) {
+        ESP_LOGD(TAG, "key2 state: pressed=%d (P0=0x%02X P1=0x%02X)", (int)pressed, port0, port1);
+        prev_pressed = pressed;
+    }
+
+    return pressed;
+}
+
+bool debounce_key2(void) {
+    static uint32_t last_change = 0;
+    static bool last_state = false;
+
+    bool current = key2_pressed();
+    uint32_t now = xTaskGetTickCount();
+
+    if (last_change == 0) {
+        last_state = current;
+        last_change = now;
+        ESP_LOGD(TAG, "debounce_key2: initial state=%d (tick %u)", (int)last_state, (unsigned)now);
+        return last_state;
+    }
+
+    if (current != last_state) {
+        if ((now - last_change) > pdMS_TO_TICKS(100)) {
+            last_state = current;
+            last_change = now;
+            ESP_LOGD(TAG, "debounce_key2: state change -> %d (port read at tick %u)", (int)last_state, (unsigned)now);
+        } else {
+            last_change = now;
+            ESP_LOGD(TAG, "debounce_key2: transient change, waiting (now=%u)", (unsigned)now);
         }
     }
 
@@ -456,7 +591,7 @@ esp_err_t audio_driver_init(i2s_chan_handle_t *tx_handle_out,
         .flags = { .enable_internal_pullup = 1 },
     };
 
-    ESP_LOGI(TAG, "Creating I2C bus...");
+    ESP_LOGD(TAG, "Creating I2C bus...");
     ESP_ERROR_CHECK(i2c_new_master_bus(&bus_cfg, &i2c_bus));
 
     // Ensure the underlying ESP-IDF I2C driver is installed so that
@@ -473,9 +608,9 @@ esp_err_t audio_driver_init(i2s_chan_handle_t *tx_handle_out,
         i2c_param_config(ES_I2C_PORT, &i2c_conf);
         esp_err_t rc = i2c_driver_install(ES_I2C_PORT, I2C_MODE_MASTER, 0, 0, 0);
         if (rc == ESP_OK) {
-            ESP_LOGI(TAG, "ESP-IDF i2c driver installed on port %d", ES_I2C_PORT);
+            ESP_LOGD(TAG, "ESP-IDF i2c driver installed on port %d", ES_I2C_PORT);
         } else if (rc == ESP_ERR_INVALID_STATE) {
-            ESP_LOGI(TAG, "ESP-IDF i2c driver already installed on port %d", ES_I2C_PORT);
+            ESP_LOGD(TAG, "ESP-IDF i2c driver already installed on port %d", ES_I2C_PORT);
         } else {
             ESP_LOGW(TAG, "Failed to install i2c driver: %s", esp_err_to_name(rc));
         }
@@ -490,24 +625,24 @@ esp_err_t audio_driver_init(i2s_chan_handle_t *tx_handle_out,
         .scl_speed_hz = ES_I2C_FREQ_HZ,
     };
 
-    ESP_LOGI(TAG, "Adding ES8311 device...");
+    ESP_LOGD(TAG, "Adding ES8311 device...");
     ESP_ERROR_CHECK(i2c_master_bus_add_device(i2c_bus, &es8311_cfg, &es8311_dev));
 
-    ESP_LOGI(TAG, "Adding ES7210 device...");
+    ESP_LOGD(TAG, "Adding ES7210 device...");
     ESP_ERROR_CHECK(i2c_master_bus_add_device(i2c_bus, &es7210_cfg, &es7210_dev));
 
-    ESP_LOGI(TAG, "Probing ES8311...");
+    ESP_LOGD(TAG, "Probing ES8311...");
     ESP_ERROR_CHECK(i2c_master_probe(i2c_bus, ES8311_ADDR, 100));
 
-    ESP_LOGI(TAG, "Probing ES7210...");
+    ESP_LOGD(TAG, "Probing ES7210...");
     ESP_ERROR_CHECK(i2c_master_probe(i2c_bus, ES7210_ADDR, 100));
 
     i2c_scan_bus(i2c_bus);
 
-    ESP_LOGI(TAG, "Initializing ES8311 codec (DAC)...");
+    ESP_LOGD(TAG, "Initializing ES8311 codec (DAC)...");
     ESP_ERROR_CHECK(es8311_init_codec());
 
-    ESP_LOGI(TAG, "Initializing ES7210 codec (ADC)...");
+    ESP_LOGD(TAG, "Initializing ES7210 codec (ADC)...");
     ESP_ERROR_CHECK(es7210_init_adc());
 
 
@@ -531,7 +666,7 @@ esp_err_t audio_driver_init(i2s_chan_handle_t *tx_handle_out,
     };
     if (LED_STRIP_GPIO_PIN >= 0 && LED_STRIP_LED_COUNT > 0) {
         if (led_strip_new_rmt_device(&strip_config, &rmt_config, &s_led_strip) == ESP_OK) {
-            ESP_LOGI(TAG, "LED ring initialized on GPIO %d (%d LEDs)", LED_STRIP_GPIO_PIN, LED_STRIP_LED_COUNT);
+            ESP_LOGD(TAG, "LED ring initialized on GPIO %d (%d LEDs)", LED_STRIP_GPIO_PIN, LED_STRIP_LED_COUNT);
             led_strip_clear(s_led_strip);
             led_strip_refresh(s_led_strip);
         } else {
@@ -551,12 +686,12 @@ esp_err_t audio_driver_init(i2s_chan_handle_t *tx_handle_out,
         uint8_t cfg1[2] = { 0x07, 0xFF };
         i2c_master_transmit(tca9555_dev, cfg0, sizeof(cfg0), 100);
         i2c_master_transmit(tca9555_dev, cfg1, sizeof(cfg1), 100);
-        ESP_LOGI(TAG, "TCA9555: configured P0=0xFF P1=0xFF");
+        ESP_LOGD(TAG, "TCA9555: configured P0=0xFF P1=0xFF");
 
         // Read back port input registers and a short register dump to verify device state
         uint8_t read_p0 = tca9555_read_port0();
         uint8_t read_p1 = tca9555_read_port1();
-        ESP_LOGI(TAG, "tca9555_readback: P0=0x%02X P1=0x%02X", read_p0, read_p1);
+        ESP_LOGD(TAG, "tca9555_readback: P0=0x%02X P1=0x%02X", read_p0, read_p1);
 
         // Try to read registers 0x00..0x07 directly for diagnosis
         {
@@ -570,7 +705,7 @@ esp_err_t audio_driver_init(i2s_chan_handle_t *tx_handle_out,
                     }
                 }
             }
-            ESP_LOGI(TAG, "tca9555_init_read 0x00..0x07: %02X %02X %02X %02X %02X %02X %02X %02X",
+            ESP_LOGD(TAG, "tca9555_init_read 0x00..0x07: %02X %02X %02X %02X %02X %02X %02X %02X",
                      regs[0], regs[1], regs[2], regs[3], regs[4], regs[5], regs[6], regs[7]);
         }
     } else {
@@ -586,7 +721,7 @@ esp_err_t audio_driver_init(i2s_chan_handle_t *tx_handle_out,
     i2s_chan_handle_t tx_handle;
     i2s_chan_handle_t rx_handle;
 
-    ESP_LOGI(TAG, "Creating I2S channels...");
+    ESP_LOGD(TAG, "Creating I2S channels...");
     ESP_ERROR_CHECK(i2s_new_channel(&chan_cfg, &tx_handle, &rx_handle));
 
 
@@ -612,7 +747,7 @@ esp_err_t audio_driver_init(i2s_chan_handle_t *tx_handle_out,
         },
     };
 
-    ESP_LOGI(TAG, "Initializing I2S RX (ES7210)...");
+    ESP_LOGD(TAG, "Initializing I2S RX (ES7210)...");
     ESP_ERROR_CHECK(i2s_channel_init_std_mode(rx_handle, &rx_cfg));
 
 
@@ -638,7 +773,7 @@ esp_err_t audio_driver_init(i2s_chan_handle_t *tx_handle_out,
         },
     };
 
-    ESP_LOGI(TAG, "Initializing I2S TX (ES8311)...");
+    ESP_LOGD(TAG, "Initializing I2S TX (ES8311)...");
     ESP_ERROR_CHECK(i2s_channel_init_std_mode(tx_handle, &tx_cfg));
 
     /* Reconfigure clocks now that channels exist */
@@ -656,10 +791,10 @@ esp_err_t audio_driver_init(i2s_chan_handle_t *tx_handle_out,
     //
     // --- ENABLE CHANNELS ---
     //
-    ESP_LOGI(TAG, "Enabling I2S RX...");
+    ESP_LOGD(TAG, "Enabling I2S RX...");
     ESP_ERROR_CHECK(i2s_channel_enable(rx_handle));
 
-    ESP_LOGI(TAG, "Enabling I2S TX...");
+    ESP_LOGD(TAG, "Enabling I2S TX...");
     ESP_ERROR_CHECK(i2s_channel_enable(tx_handle));
 
     
@@ -677,7 +812,7 @@ esp_err_t audio_driver_init(i2s_chan_handle_t *tx_handle_out,
     *tx_handle_out = tx_handle;
     *rx_handle_out = rx_handle;
 
-    ESP_LOGI(TAG, "Audio driver initialized successfully");
+    ESP_LOGD(TAG, "Audio driver initialized successfully");
     return ESP_OK;
 }
 

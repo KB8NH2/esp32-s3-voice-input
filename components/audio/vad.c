@@ -11,7 +11,7 @@
 // Energy is average of squares (RMS^2).
 // For your audio, noise/music ~1e5–2e5, speech ~4e5–1e6+.
 // Start at 300k and adjust if needed.
-#define VAD_ENERGY_THRESHOLD     3000000ULL
+#define VAD_ENERGY_THRESHOLD     4000000ULL
 
 // Minimum speech duration before firing callback (in samples).
 // 12000 samples @ 16 kHz ≈ 300 ms.

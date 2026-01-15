@@ -12,6 +12,7 @@ set(SOURCES
 set(INCLUDE_DIRS
     "."
     "./network"
+    "../components"
     "../managed_components"
 )
 

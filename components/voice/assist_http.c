@@ -56,7 +56,7 @@ void assist_http_init(void)
 
 void assist_http_send_utterance(const int16_t *samples, size_t sample_count)
 {
-    ESP_LOGI(TAG, "Sending utterance: %u samples", (unsigned)sample_count);
+    ESP_LOGD(TAG, "Sending utterance: %u samples", (unsigned)sample_count);
 
     // 1. Base64 encode PCM16
     size_t pcm_bytes = sample_count * sizeof(int16_t);
@@ -134,7 +134,7 @@ void assist_http_send_utterance(const int16_t *samples, size_t sample_count)
     esp_err_t err = esp_http_client_perform(client);
     if (err == ESP_OK) {
         int status = esp_http_client_get_status_code(client);
-        ESP_LOGI(TAG, "Assist HTTP status: %d", status);
+        ESP_LOGD(TAG, "Assist HTTP status: %d", status);
     } else {
         ESP_LOGE(TAG, "HTTP request failed: %s", esp_err_to_name(err));
     }

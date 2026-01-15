@@ -89,7 +89,7 @@ static int socket_send_all(int sock, const void *buf, int len, int timeout_ms)
 
 char *stt_send_wav_multipart(const int16_t *pcm_data, size_t pcm_samples)
 {
-    ESP_LOGI(TAG, "stt_send_wav_multipart enter: pcm_samples=%u", (unsigned)pcm_samples);
+    ESP_LOGD(TAG, "stt_send_wav_multipart enter: pcm_samples=%u", (unsigned)pcm_samples);
     const char *host = "192.168.1.154";
     const char *port = "10300";
     const char *path = "/asr";
@@ -102,19 +102,19 @@ char *stt_send_wav_multipart(const int16_t *pcm_data, size_t pcm_samples)
         resample_needed = true;
         out_samples = (int)((int64_t)pcm_samples * STT_SAMPLE_RATE / DEVICE_SAMPLE_RATE);
         rescale = (double)(pcm_samples - 1) / (double)(out_samples - 1);
-        ESP_LOGI(TAG, "Resample streaming: out_samples=%d out_bytes=%d", out_samples, out_samples * 2);
-        ESP_LOGI(TAG, "stt: after resample calculation");
-        ESP_LOGI(TAG, "stt: checkpoint after resample calc time=%lld", (long long)esp_timer_get_time());
+        ESP_LOGD(TAG, "Resample streaming: out_samples=%d out_bytes=%d", out_samples, out_samples * 2);
+        ESP_LOGD(TAG, "stt: after resample calculation");
+        ESP_LOGD(TAG, "stt: checkpoint after resample calc time=%lld", (long long)esp_timer_get_time());
         vTaskDelay(pdMS_TO_TICKS(1));
     }
     int pcm_bytes = out_samples * 2;
 
-    ESP_LOGI(TAG, "stt_send_wav_multipart: pcm_samples=%u out_samples=%d pcm_bytes=%d resample=%d",
+    ESP_LOGD(TAG, "stt_send_wav_multipart: pcm_samples=%u out_samples=%d pcm_bytes=%d resample=%d",
              (unsigned)pcm_samples, out_samples, pcm_bytes, resample_needed);
     uint8_t wav_header[44];
-    ESP_LOGI(TAG, "stt: before build_wav_header");
+    ESP_LOGD(TAG, "stt: before build_wav_header");
     build_wav_header(wav_header, pcm_bytes);
-    ESP_LOGI(TAG, "stt: after build_wav_header");
+    ESP_LOGD(TAG, "stt: after build_wav_header");
 
     char form_header[256];
     int header_len = snprintf(form_header, sizeof(form_header),
@@ -127,7 +127,7 @@ char *stt_send_wav_multipart(const int16_t *pcm_data, size_t pcm_samples)
     int footer_len = snprintf(form_footer, sizeof(form_footer), "\r\n--%s--\r\n", boundary);
 
     int total_len = header_len + 44 + pcm_bytes + footer_len;
-    ESP_LOGI(TAG, "stt: total_len=%d header_len=%d footer_len=%d pcm_bytes=%d", total_len, header_len, footer_len, pcm_bytes);
+    ESP_LOGD(TAG, "stt: total_len=%d header_len=%d footer_len=%d pcm_bytes=%d", total_len, header_len, footer_len, pcm_bytes);
     const int MAX_UPLOAD_BYTES = 256 * 1024;
     if (total_len <= 0 || total_len > MAX_UPLOAD_BYTES) {
         ESP_LOGE(TAG, "upload too large or invalid: %d bytes", total_len);
@@ -144,7 +144,7 @@ char *stt_send_wav_multipart(const int16_t *pcm_data, size_t pcm_samples)
         dest.sin_port = htons(atoi(port));
         strncpy(ipstr, host, sizeof(ipstr)-1);
         have_numeric = 1;
-        ESP_LOGI(TAG, "Using numeric IP %s", ipstr);
+        ESP_LOGD(TAG, "Using numeric IP %s", ipstr);
     }
 
     int sock = -1;
@@ -162,7 +162,7 @@ char *stt_send_wav_multipart(const int16_t *pcm_data, size_t pcm_samples)
         }
         struct sockaddr_in *sa = (struct sockaddr_in *)res->ai_addr;
         inet_ntop(AF_INET, &(sa->sin_addr), ipstr, sizeof(ipstr));
-        ESP_LOGI(TAG, "Resolved %s to %s", host, ipstr);
+        ESP_LOGD(TAG, "Resolved %s to %s", host, ipstr);
         sock = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
         // copy resolved address to dest for connect
         memcpy(&dest, sa, sizeof(dest));
@@ -173,7 +173,7 @@ char *stt_send_wav_multipart(const int16_t *pcm_data, size_t pcm_samples)
         ESP_LOGE(TAG, "socket failed: %d", errno);
         return NULL;
     }
-    ESP_LOGI(TAG, "socket created: fd=%d", sock);
+    ESP_LOGD(TAG, "socket created: fd=%d", sock);
 
     // set send timeout
     struct timeval tv;
@@ -188,7 +188,7 @@ char *stt_send_wav_multipart(const int16_t *pcm_data, size_t pcm_samples)
     int rc = connect(sock, (struct sockaddr *)&dest, sizeof(dest));
     if (rc != 0) {
         if (errno == EINPROGRESS) {
-            ESP_LOGI(TAG, "connect in progress, waiting up to 5000 ms");
+            ESP_LOGD(TAG, "connect in progress, waiting up to 5000 ms");
             fd_set wf;
             FD_ZERO(&wf);
             FD_SET(sock, &wf);
@@ -211,7 +211,7 @@ char *stt_send_wav_multipart(const int16_t *pcm_data, size_t pcm_samples)
                 if (res) freeaddrinfo(res);
                 return NULL;
             }
-            ESP_LOGI(TAG, "connect completed via select");
+            ESP_LOGD(TAG, "connect completed via select");
         } else {
             ESP_LOGE(TAG, "connect failed immediately: errno=%d", errno);
             close(sock);
@@ -219,12 +219,12 @@ char *stt_send_wav_multipart(const int16_t *pcm_data, size_t pcm_samples)
             return NULL;
         }
     } else {
-        ESP_LOGI(TAG, "connect returned immediately success");
+        ESP_LOGD(TAG, "connect returned immediately success");
     }
     // restore blocking mode
     fcntl(sock, F_SETFL, old_flags);
     if (res) freeaddrinfo(res);
-    ESP_LOGI(TAG, "socket connected to %s:%s", ipstr, port);
+    ESP_LOGD(TAG, "socket connected to %s:%s", ipstr, port);
 
     // Build and send HTTP request header (with Content-Length)
     char req_hdr[512];
@@ -303,7 +303,7 @@ char *stt_send_wav_multipart(const int16_t *pcm_data, size_t pcm_samples)
     close(sock);
 
     /*
-    ESP_LOGI(TAG, "HTTP response (%d bytes): %s", total, resp_buf);
+    ESP_LOGD(TAG, "HTTP response (%d bytes): %s", total, resp_buf);
     */
     // Helper: extract body and decode chunked transfer if present
     char *body = NULL;

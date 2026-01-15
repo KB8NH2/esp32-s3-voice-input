@@ -31,7 +31,7 @@ static int64_t s_capture_start_us = 0;
 
 void Speech_Init(void)
 {
-    ESP_LOGI(TAG, "Initializing microphone subsystem");
+    ESP_LOGD(TAG, "Initializing microphone subsystem");
 
     // Initialize audio hardware (ES8311 + I2S RX/TX)
     ESP_ERROR_CHECK(audio_driver_init(&tx_handle, &rx_handle));
@@ -53,7 +53,7 @@ void Speech_Init(void)
         1
     );
 
-    ESP_LOGI(TAG, "Microphone subsystem initialized");
+    ESP_LOGD(TAG, "Microphone subsystem initialized");
 }
 
 void mic_start_capture(void)
@@ -66,7 +66,7 @@ void mic_start_capture(void)
         s_capture_samples = 0;
         s_capture_enabled = true;
         s_capture_start_us = esp_timer_get_time();
-        ESP_LOGI(TAG, "mic_start_capture: enabled, samples reset");
+        ESP_LOGD(TAG, "mic_start_capture: enabled, samples reset");
         xSemaphoreGive(s_capture_mutex);
     }
 }
@@ -83,11 +83,11 @@ void mic_stop_capture(void)
         if (s_capture_start_us > 0 && now > s_capture_start_us) {
             double secs = (now - s_capture_start_us) / 1000000.0;
             double rate = secs > 0 ? (double)s_capture_samples / secs : 0.0;
-            ESP_LOGI(TAG, "mic_stop_capture: samples=%u duration=%.3fs approx_rate=%.1f Hz",
+            ESP_LOGD(TAG, "mic_stop_capture: samples=%u duration=%.3fs approx_rate=%.1f Hz",
                      (unsigned)s_capture_samples, secs, rate);
         }
         s_capture_start_us = 0;
-        ESP_LOGI(TAG, "mic_stop_capture: disabled");
+        ESP_LOGD(TAG, "mic_stop_capture: disabled");
         xSemaphoreGive(s_capture_mutex);
     }
 }
@@ -100,12 +100,12 @@ int16_t *mic_take_captured_buffer(size_t *out_samples)
     }
     int16_t *out = NULL;
     if (xSemaphoreTake(s_capture_mutex, portMAX_DELAY) == pdTRUE) {
-        ESP_LOGI(TAG, "mic_take_captured_buffer: internal samples=%u capacity=%u", (unsigned)s_capture_samples, (unsigned)s_capture_capacity);
+        ESP_LOGD(TAG, "mic_take_captured_buffer: internal samples=%u capacity=%u", (unsigned)s_capture_samples, (unsigned)s_capture_capacity);
         if (s_capture_samples > 0) {
             // Transfer ownership of internal buffer to caller to avoid extra allocation/copy.
             out = s_capture_buf;
             if (out_samples) *out_samples = s_capture_samples;
-            ESP_LOGI(TAG, "mic_take_captured_buffer: returning ownership of %u samples (%u bytes)", (unsigned)s_capture_samples, (unsigned)(s_capture_samples * sizeof(int16_t)));
+            ESP_LOGD(TAG, "mic_take_captured_buffer: returning ownership of %u samples (%u bytes)", (unsigned)s_capture_samples, (unsigned)(s_capture_samples * sizeof(int16_t)));
             // Clear internal state but do NOT free out (caller owns it)
             s_capture_buf = NULL;
             s_capture_capacity = 0;
@@ -135,6 +135,7 @@ static inline int16_t es7210_downmix_mono(const int16_t *raw)
 
     return (int16_t)((mic1 + mic2) / 2);
 }
+
 static void mic_task(void *arg)
 {
     static int16_t vad_buf[160];
@@ -147,7 +148,7 @@ static void mic_task(void *arg)
         vTaskDelete(NULL);
     }
 
-    ESP_LOGI(TAG, "Mic task started");
+    ESP_LOGD(TAG, "Mic task started");
 
     for (;;) {
         size_t bytes_read = 0;
