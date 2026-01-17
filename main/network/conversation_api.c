@@ -42,7 +42,7 @@ static esp_err_t _http_event_handler(esp_http_client_event_t *evt)
         break;
     case HTTP_EVENT_ON_FINISH:
         resp_buf[resp_len] = '\0';
-        ESP_LOGI("conversation", "Conversation server response: %s", resp_buf);
+        ESP_LOGD("conversation", "Conversation server response: %s", resp_buf);
 
         // TODO: parse JSON and extract assistant reply
         const char *reply = resp_buf;

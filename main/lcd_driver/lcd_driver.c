@@ -151,7 +151,7 @@ esp_err_t lcd_driver_init(void)
 
     Set_Backlight(DEFAULT_BACKLIGHT);
     
-    //test_draw_bitmap(lcd_panel);
+    test_draw_bitmap(lcd_panel);
     return ret;
 
 err:

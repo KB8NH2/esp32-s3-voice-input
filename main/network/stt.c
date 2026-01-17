@@ -292,12 +292,27 @@ char *stt_send_wav_multipart(const int16_t *pcm_data, size_t pcm_samples)
     char resp_buf[4096];
     int total = 0;
     int r;
-    while ((r = recv(sock, resp_buf + total, sizeof(resp_buf) - total - 1, 0)) > 0) {
-        total += r;
-        if (total >= (int)sizeof(resp_buf) - 1) break;
-    }
-    if (r < 0) {
+    for (;;) {
+        r = recv(sock, resp_buf + total, sizeof(resp_buf) - total - 1, 0);
+        if (r > 0) {
+            total += r;
+            if (total >= (int)sizeof(resp_buf) - 1) break;
+            continue;
+        }
+        if (r == 0) {
+            // peer closed connection
+            break;
+        }
+        // r < 0: error condition
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            // No more data available right now on non-blocking socket —
+            // treat as end of response and stop reading. This can happen
+            // when socket is non-blocking or due to transient conditions.
+            ESP_LOGD(TAG, "recv would block (EAGAIN/EWOULDBLOCK), treating as EOF");
+            break;
+        }
         ESP_LOGW(TAG, "recv returned %d errno=%d", r, errno);
+        break;
     }
     resp_buf[total] = '\0';
     close(sock);

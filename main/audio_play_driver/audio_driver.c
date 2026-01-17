@@ -441,7 +441,7 @@ esp_err_t audio_driver_init(i2s_chan_handle_t *tx_handle_out,
     led_strip_config_t strip_config = {
         .strip_gpio_num = LED_STRIP_GPIO_PIN,
         .max_leds = LED_STRIP_LED_COUNT,
-        .color_component_format = LED_STRIP_COLOR_COMPONENT_FMT_GRB,
+        .color_component_format = LED_STRIP_COLOR_COMPONENT_FMT_RGB,
     };
     led_strip_rmt_config_t rmt_config = {
         .resolution_hz = 10 * 1000 * 1000,

@@ -150,6 +150,19 @@ static void mic_task(void *arg)
 
     ESP_LOGD(TAG, "Mic task started");
 
+    // Adaptive gain state: start high, reduce on clipping, slowly recover
+    static int s_gain_mult = 24; // starting multiplier (e.g. x24)
+    static int s_clip_count = 0;
+    static int s_no_clip_count = 0;
+    // DC-block (one-pole HP) state
+    static float s_dc_prev_x = 0.0f;
+    static float s_dc_prev_y = 0.0f;
+    // Transient suppressor state
+    static int32_t s_prev_filtered = 0;
+    // Tunables
+    const float DC_R = 0.995f; // DC blocker coefficient (smaller -> higher cutoff)
+    const int SPIKE_THRESHOLD = 8000; // sample delta threshold for spike suppression
+
     for (;;) {
         size_t bytes_read = 0;
         esp_err_t ret = i2s_channel_read(
@@ -208,14 +221,65 @@ static void mic_task(void *arg)
             // Downmix
             int32_t mono = (s_mic1 + s_mic2) / 2;
 
-            // Apply your 24 dB gain
-            mono *= 8;
+            // DC-block / one-pole high-pass: y[n] = x[n] - x[n-1] + R * y[n-1]
+            float xf = (float)mono;
+            float yf = xf - s_dc_prev_x + DC_R * s_dc_prev_y;
+            s_dc_prev_x = xf;
+            s_dc_prev_y = yf;
+            int32_t filtered = (int32_t)lroundf(yf);
 
-            // Clip
-            if (mono > 32767) mono = 32767;
-            if (mono < -32768) mono = -32768;
+            // Tiny transient suppressor: detect large single-sample deltas
+            int32_t delta = filtered - s_prev_filtered;
+            if (abs(delta) > SPIKE_THRESHOLD) {
+                // replace with average of previous and current to smooth spike
+                int32_t suppressed = (s_prev_filtered + filtered) / 2;
+                ESP_LOGD(TAG, "mic: spike suppressed (delta=%d) -> %d", (int)delta, (int)suppressed);
+                filtered = suppressed;
+                // treat as a clipping-like event to reduce gain if frequent
+                s_clip_count++;
+                s_no_clip_count = 0;
+            } else {
+                s_no_clip_count++;
+            }
+            s_prev_filtered = filtered;
 
-            pcm_ptr[f] = (int16_t)mono;
+            // Adaptive gain: multiply then detect clipping
+            int64_t amplified = (int64_t)filtered * (int64_t)s_gain_mult;
+            int clipped = 0;
+            if (amplified > 32767) {
+                amplified = 32767;
+                clipped = 1;
+            } else if (amplified < -32768) {
+                amplified = -32768;
+                clipped = 1;
+            }
+            pcm_ptr[f] = (int16_t)amplified;
+
+            // Update clip/no-clip counters
+            if (clipped) {
+                s_clip_count++;
+                s_no_clip_count = 0;
+            }
+
+            // If clipping has occurred frequently in recent frames, reduce gain
+            if (s_clip_count >= 8) {
+                if (s_gain_mult > 1) {
+                    s_gain_mult = s_gain_mult / 2;
+                    ESP_LOGD(TAG, "mic: clipping detected, reducing gain -> x%d", s_gain_mult);
+                }
+                s_clip_count = 0;
+                s_no_clip_count = 0;
+            }
+
+            // If we've had a long period without clipping, cautiously increase gain
+            if (s_no_clip_count >= 2000) {
+                if (s_gain_mult < 24) {
+                    s_gain_mult = s_gain_mult * 2;
+                    if (s_gain_mult > 24) s_gain_mult = 24;
+                    ESP_LOGD(TAG, "mic: no clipping, increasing gain -> x%d", s_gain_mult);
+                }
+                s_no_clip_count = 0;
+            }
         }
 
         // ----------------------------------------------------
@@ -228,6 +292,16 @@ static void mic_task(void *arg)
             int16_t s = pcm16[i];
             sum_sq += (int64_t)s * s;
             if (abs(s) > peak) peak = abs(s);
+        }
+
+        // Periodic diagnostics: log RMS/peak and heap/PSRAM stats every N iterations
+        static int s_mic_log_count = 0;
+        if (++s_mic_log_count >= 100) {
+            size_t free_heap = esp_get_free_heap_size();
+            size_t ps_largest = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM);
+            double rms = (frames > 0) ? sqrt((double)sum_sq / (double)frames) : 0.0;
+            ESP_LOGD(TAG, "mic: peak=%d rms=%.1f free=%u ps_largest=%u", peak, rms, (unsigned)free_heap, (unsigned)ps_largest);
+            s_mic_log_count = 0;
         }
     
         // ----------------------------------------------------

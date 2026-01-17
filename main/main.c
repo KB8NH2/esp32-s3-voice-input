@@ -65,6 +65,9 @@ struct stt_task_arg {
 static int16_t *s_stt_pool[STT_POOL_COUNT];
 static int s_stt_pool_in_use[STT_POOL_COUNT];
 static SemaphoreHandle_t s_stt_pool_mutex = NULL;
+// Single-worker STT sender queue
+static QueueHandle_t s_stt_queue = NULL;
+#define STT_QUEUE_LEN 4
 
 static void stt_pool_init(void)
 {
@@ -102,6 +105,8 @@ static int16_t *stt_pool_alloc(void)
             }
         }
         xSemaphoreGive(s_stt_pool_mutex);
+    } else {
+        ESP_LOGW(TAG, "stt_pool_alloc: failed to take pool mutex");
     }
     if (ret) {
         ESP_LOGD(TAG, "stt_pool_alloc: allocated pool buffer %p", ret);
@@ -122,6 +127,7 @@ static void stt_pool_free(int16_t *buf)
             }
         }
         xSemaphoreGive(s_stt_pool_mutex);
+        ESP_LOGD(TAG, "stt_pool_free: freed pool buffer %p", buf);
     }
 }
 
@@ -157,9 +163,11 @@ static void vad_ptt_notify_cb(const int16_t *samples, size_t count)
                     arg->buf = pbuf;
                     arg->samples = to_copy;
                     arg->owns_buf = 0;
-                    BaseType_t ok = xTaskCreatePinnedToCore(stt_sender_task, "stt_task", 16384, arg, 5, NULL, 1);
-                    if (ok != pdTRUE) {
-                        ESP_LOGW(TAG, "Failed to create stt_sender_task");
+                    // Enqueue for single-worker STT sender
+                    if (s_stt_queue && xQueueSend(s_stt_queue, &arg, pdMS_TO_TICKS(10)) == pdTRUE) {
+                        ESP_LOGD(TAG, "Enqueued pooled VAD segment %p samples=%u", pbuf, (unsigned)to_copy);
+                    } else {
+                        ESP_LOGW(TAG, "STT queue full or unavailable; dropping segment");
                         stt_pool_free(pbuf);
                         free(arg);
                     }
@@ -168,6 +176,14 @@ static void vad_ptt_notify_cb(const int16_t *samples, size_t count)
 
                 // Fallback: allocate one contiguous block for the task arg + VAD samples.
                 size_t buf_bytes = count * sizeof(int16_t);
+                // Guard against exhausting PSRAM/internal heap when pool is empty.
+                size_t ps_largest = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM);
+                size_t heap_free = esp_get_free_heap_size();
+                if ((ps_largest > 0 && ps_largest < buf_bytes + 1024) || (ps_largest == 0 && heap_free < buf_bytes + 4096)) {
+                    ESP_LOGW(TAG, "Skipping VAD segment: insufficient contiguous RAM for %u bytes (ps_largest=%u free=%u)", (unsigned)buf_bytes, (unsigned)ps_largest, (unsigned)heap_free);
+                    return;
+                }
+
                 struct stt_task_arg *arg = NULL;
                 // Prefer PSRAM if available, fall back to internal RAM.
                 arg = heap_caps_malloc(sizeof(*arg) + buf_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -185,11 +201,13 @@ static void vad_ptt_notify_cb(const int16_t *samples, size_t count)
                 arg->samples = count;
                 arg->buf = (int16_t *)(arg + 1);
                 memcpy(arg->buf, samples, buf_bytes);
+                ESP_LOGD(TAG, "Allocated stt_task_arg+buf %p (%u bytes)", arg, (unsigned)(sizeof(*arg) + buf_bytes));
 
-                // Spawn the STT sender task directly (keeps capture running).
-                BaseType_t ok = xTaskCreatePinnedToCore(stt_sender_task, "stt_task", 16384, arg, 5, NULL, 1);
-                if (ok != pdTRUE) {
-                    ESP_LOGW(TAG, "Failed to create stt_sender_task");
+                // Enqueue for single-worker STT sender (keeps capture running).
+                if (s_stt_queue && xQueueSend(s_stt_queue, &arg, pdMS_TO_TICKS(10)) == pdTRUE) {
+                    // queued
+                } else {
+                    ESP_LOGW(TAG, "STT queue full or unavailable; dropping VAD segment");
                     heap_caps_free(arg);
                 }
                 return;
@@ -222,17 +240,28 @@ static void vad_ptt_notify_cb(const int16_t *samples, size_t count)
         arg->buf = pbuf;
         arg->samples = to_copy;
         arg->owns_buf = 0;
-        BaseType_t ok = xTaskCreatePinnedToCore(stt_bg_task, "stt_bg", 12288, arg, 5, NULL, 1);
-        if (ok != pdTRUE) {
+        // Enqueue pooled background segment to single-worker sender
+        if (s_stt_queue && xQueueSend(s_stt_queue, &arg, pdMS_TO_TICKS(10)) == pdTRUE) {
+            ESP_LOGD(TAG, "Enqueued background pooled segment %p samples=%u", pbuf, (unsigned)to_copy);
+        } else {
+            ESP_LOGW(TAG, "STT queue full or unavailable; dropping background segment");
             stt_pool_free(pbuf);
             free(arg);
         }
         return;
     }
 
-    // Fallback: heap allocate a copy
-    int16_t *buf = heap_caps_malloc(count * sizeof(int16_t), MALLOC_CAP_8BIT);
+    // Fallback: heap allocate a copy. Guard against large allocations when PSRAM is fragmented.
+    size_t buf_bytes = count * sizeof(int16_t);
+    size_t ps_largest = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM);
+    size_t heap_free = esp_get_free_heap_size();
+    if ((ps_largest > 0 && ps_largest < buf_bytes + 1024) || (ps_largest == 0 && heap_free < buf_bytes + 4096)) {
+        ESP_LOGW(TAG, "Skipping background VAD segment: insufficient contiguous RAM for %u bytes (ps_largest=%u free=%u)", (unsigned)buf_bytes, (unsigned)ps_largest, (unsigned)heap_free);
+        return;
+    }
+    int16_t *buf = heap_caps_malloc(buf_bytes, MALLOC_CAP_8BIT);
     if (!buf) return;
+    ESP_LOGD(TAG, "Allocated fallback bg buffer %p bytes=%u", buf, (unsigned)buf_bytes);
     memcpy(buf, samples, count * sizeof(int16_t));
 
     struct stt_task_arg *arg = malloc(sizeof(*arg));
@@ -257,27 +286,39 @@ static void on_stt_result(const char *text);
 static void on_conversation_reply(const char *reply_text);
 static void ptt_task(void *arg);
 
-static void stt_sender_task(void *v)
+// Helper to process a single STT task_arg (used by both worker and existing task wrapper)
+static void stt_process_arg(struct stt_task_arg *a)
 {
-    struct stt_task_arg *a = (struct stt_task_arg *)v;
     ESP_LOGD(TAG, "stt_task: calling stt_send_wav_multipart samples=%u", (unsigned)a->samples);
     char *resp = stt_send_wav_multipart(a->buf, a->samples);
     if (a->owns_buf) {
         free(a->buf);
     } else {
-        // buffer came from pool
         stt_pool_free(a->buf);
     }
     if (resp) {
         if (strlen(resp) > 0) {
             ESP_LOGI(TAG, "Whisper returned: \"%s\"", resp);
-            // If this transcription contains a wake-word, handle it here
-            // so wake-word commands like "echo off" are recognized while
-            // in LISTENING / continuous conversation mode.
             if (is_wake_word(resp)) {
-                ESP_LOGD(TAG, "Wake-word detected in stt_sender_task -> handled");
+                ESP_LOGD(TAG, "Wake-word detected in stt_task -> handled");
+                // Start capture and enter LISTENING so VAD events are processed
+                mic_start_capture();
+                s_ptt_listening = 1;
+                if (!s_stay_in_conversation) {
+                    led_ring_set_color(0, 64, 0); // dim green
+                } else {
+                    led_ring_set_color(0, 0, 64); // dim blue
+                }
             } else {
-                on_stt_result(resp);
+                // Only forward non-wake-word background segments when in
+                // continuous conversation mode or when we are actively
+                // listening (PTT). If this arg originated from a PTT
+                // capture (`owns_buf == 1`) always forward.
+                if (a->owns_buf || s_stay_in_conversation || s_ptt_listening) {
+                    on_stt_result(resp);
+                } else {
+                    ESP_LOGD(TAG, "Background STT (not wake-word): %s", resp);
+                }
             }
         }
         free(resp);
@@ -285,7 +326,28 @@ static void stt_sender_task(void *v)
         ESP_LOGW(TAG, "stt_send_wav_multipart returned NULL");
     }
     free(a);
+}
+
+// Legacy wrapper: allows creating a dedicated task if needed
+static void stt_sender_task(void *v)
+{
+    struct stt_task_arg *a = (struct stt_task_arg *)v;
+    stt_process_arg(a);
     vTaskDelete(NULL);
+}
+
+// Single persistent worker that serially processes STT uploads from a queue
+static void stt_sender_worker(void *v)
+{
+    struct stt_task_arg *a = NULL;
+    for (;;) {
+        if (xQueueReceive(s_stt_queue, &a, portMAX_DELAY) == pdTRUE) {
+            if (a) {
+                ESP_LOGD(TAG, "stt_worker: processing arg %p samples=%u owns_buf=%d", a, (unsigned)a->samples, a->owns_buf);
+                stt_process_arg(a);
+            }
+        }
+    }
 }
 
 // Background STT task for wake-word detection. It sends the captured
@@ -328,25 +390,46 @@ static int is_wake_word(const char *text)
         "okay computer", 
         "hey jarvis", 
         "wake up", 
-        "echo on",
-        "echo off",
+        "echo on", "turn echo on", "turn on echo",
+        "echo off", "turn echo off", "turn off echo",
+        "debug on", "turn debug on", "turn on debug",
+        "debug off", "turn debug off", "turn off debug",
         NULL };
     int found = 0;
     for (int i = 0; wakes[i]; ++i) {
         if (strcmp(clean, wakes[i]) == 0) { found = 1; break; }
     }
     if (found) {
-        if (strcmp(clean, "echo on") == 0) {
+        if ((strcmp(clean, "echo on") == 0) || 
+            (strcmp(clean, "turn echo on") == 0) || 
+            (strcmp(clean, "turn on echo") == 0)) {
             s_stay_in_conversation = 1;
+            led_ring_set_color(0, 0, 64); // dim blue     
             ESP_LOGI(TAG, "Entering continuous conversation mode");
             conversation_send("echo on");
-        } else if (strcmp(clean, "echo off") == 0) {
+            found = 0; // don't treat as wake-word
+        } else if ((strcmp(clean, "echo off") == 0) || 
+                   (strcmp(clean, "turn echo off") == 0) || 
+                   (strcmp(clean, "turn off echo") == 0)) {  
             s_ptt_listening = 0;
             s_stay_in_conversation = 0;
             led_ring_clear();
             ESP_LOGI(TAG, "Exiting continuous conversation mode");
             conversation_send("echo off");
-        }
+            found = 0; // don't treat as wake-word
+        } else if ((strcmp(clean, "debug on") == 0) || 
+                   (strcmp(clean, "turn debug on") == 0) || 
+                   (strcmp(clean, "turn on debug") == 0)) {
+            set_global_log_level_idx(s_log_level_idx + 1); // DEBUG/VERBOSE
+            printf("Debug logging enabled");
+            found = 0; // don't treat as wake-word
+        } else if ((strcmp(clean, "debug off") == 0) || 
+                   (strcmp(clean, "turn debug off") == 0) || 
+                   (strcmp(clean, "turn off debug") == 0)) {
+            set_global_log_level_idx(s_log_level_idx - 1); // INFO
+            printf("Debug logging disabled");
+            found = 0; // don't treat as wake-word
+        }   
     }
     free(clean);
     return found;
@@ -357,7 +440,11 @@ static void stt_bg_task(void *v)
     struct stt_task_arg *a = (struct stt_task_arg *)v;
     ESP_LOGD(TAG, "stt_bg: calling stt_send_wav_multipart samples=%u", (unsigned)a->samples);
     char *resp = stt_send_wav_multipart(a->buf, a->samples);
-    free(a->buf);
+    if (a->owns_buf) {
+        free(a->buf);
+    } else {
+        stt_pool_free(a->buf);
+    }
     if (resp) {
         if (strlen(resp) > 0) {
             ESP_LOGI(TAG, "Whisper returned: \"%s\"", resp);
@@ -405,7 +492,7 @@ static void ptt_stop_and_send(void)
     if (samples == 0) {
         ESP_LOGW(TAG, "PTT: mic_take_captured_buffer returned 0 samples");
     }
-    if (buf && samples > 0) {
+        if (buf && samples > 0) {
         // Offload STT upload to its own task to avoid stack exhaustion
         ESP_LOGD(TAG, "PTT: spawning stt sender task for %u samples", (unsigned)samples);
         struct stt_task_arg *arg = malloc(sizeof(*arg));
@@ -417,12 +504,13 @@ static void ptt_stop_and_send(void)
         arg->buf = buf;
         arg->samples = samples;
         arg->owns_buf = 1;
-        BaseType_t ok = xTaskCreatePinnedToCore(stt_sender_task, "stt_task", 16384, arg, 5, NULL, 1);
-        if (ok != pdTRUE) {
-            ESP_LOGE(TAG, "Failed to create stt task");
-            free(arg->buf);
-            free(arg);
-        }
+            if (s_stt_queue && xQueueSend(s_stt_queue, &arg, pdMS_TO_TICKS(10)) == pdTRUE) {
+                ESP_LOGD(TAG, "Enqueued captured audio %p samples=%u", arg->buf, (unsigned)arg->samples);
+            } else {
+                ESP_LOGE(TAG, "STT queue full or unavailable; dropping captured audio");
+                if (arg->owns_buf) free(arg->buf); else stt_pool_free(arg->buf);
+                free(arg);
+            }
     } else {
         ESP_LOGW(TAG, "No audio captured to send");
     }
@@ -457,6 +545,15 @@ void app_main(void)
     // create PTT event queue and register VAD callback to notify PTT task on VAD END
     s_ptt_event_queue = xQueueCreate(4, sizeof(ptt_event_t));
     vad_set_callback(vad_ptt_notify_cb);
+
+    // Create single-worker STT sender queue and worker
+    s_stt_queue = xQueueCreate(STT_QUEUE_LEN, sizeof(void *));
+    if (s_stt_queue) {
+        xTaskCreatePinnedToCore(stt_sender_worker, "stt_worker", 16384, NULL, 5, NULL, 1);
+        ESP_LOGD(TAG, "STT sender queue created (len=%d) and worker started", STT_QUEUE_LEN);
+    } else {
+        ESP_LOGW(TAG, "Failed to create STT sender queue");
+    }
 
     // 4. Start push-to-talk state machine task
     xTaskCreatePinnedToCore(ptt_task, "ptt_task", 4096, NULL, 5, NULL, 1);
