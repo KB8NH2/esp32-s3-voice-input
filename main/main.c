@@ -5,6 +5,10 @@
 #include "conversation_api.h"
 #include "piper_tts.h"
 #include "audio_driver.h"
+#include "lcd_driver.h"
+#include "lvgl_driver.h"
+#include "bsp_board.h"
+#include "tca9555_driver.h"
 
 #include "esp_log.h"
 #include "esp_heap_caps.h"
@@ -14,8 +18,13 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
+#include "lvgl.h"
 
 static const char *TAG = "main";
+
+// LVGL label objects for displaying STT and conversation text
+static lv_obj_t *label_stt = NULL;
+static lv_obj_t *label_conversation = NULL;
 
 // Global log level management via keys
 static const esp_log_level_t s_log_levels[] = {
@@ -300,7 +309,18 @@ static void stt_process_arg(struct stt_task_arg *a)
         if (strlen(resp) > 0) {
             ESP_LOGI(TAG, "Whisper returned: \"%s\"", resp);
             if (is_wake_word(resp)) {
-                ESP_LOGD(TAG, "Wake-word detected in stt_task -> handled");
+                ESP_LOGI(TAG, "Wake-word detected! Entering listening mode");
+                // Update LCD to show wake-word was heard (but don't send to conversation)
+                if (label_stt) {
+                    if (lvgl_port_lock(pdMS_TO_TICKS(1000))) {
+                        char display_text[128];
+                        snprintf(display_text, sizeof(display_text), "STT: %s", resp);
+                        lv_label_set_text(label_stt, display_text);
+                        lv_obj_invalidate(label_stt);
+                        lvgl_port_unlock();
+                        vTaskDelay(pdMS_TO_TICKS(100));
+                    }
+                }
                 // Start capture and enter LISTENING so VAD events are processed
                 mic_start_capture();
                 s_ptt_listening = 1;
@@ -314,10 +334,11 @@ static void stt_process_arg(struct stt_task_arg *a)
                 // continuous conversation mode or when we are actively
                 // listening (PTT). If this arg originated from a PTT
                 // capture (`owns_buf == 1`) always forward.
+                ESP_LOGD(TAG, "owns_buf=%d s_stay_in_conv=%d s_ptt_listening=%d", a->owns_buf, s_stay_in_conversation, s_ptt_listening);
                 if (a->owns_buf || s_stay_in_conversation || s_ptt_listening) {
                     on_stt_result(resp);
                 } else {
-                    ESP_LOGD(TAG, "Background STT (not wake-word): %s", resp);
+                    ESP_LOGI(TAG, "Background STT (not wake-word, not listening): %s", resp);
                 }
             }
         }
@@ -450,6 +471,17 @@ static void stt_bg_task(void *v)
             ESP_LOGI(TAG, "Whisper returned: \"%s\"", resp);
             if (is_wake_word(resp)) {
                 ESP_LOGD(TAG, "Wake-word detected -> entering LISTEN mode");
+                // Update LCD to show wake-word was heard (but don't send to conversation)
+                if (label_stt) {
+                    if (lvgl_port_lock(pdMS_TO_TICKS(1000))) {
+                        char display_text[128];
+                        snprintf(display_text, sizeof(display_text), "STT: %s", resp);
+                        lv_label_set_text(label_stt, display_text);
+                        lv_obj_invalidate(label_stt);
+                        lvgl_port_unlock();
+                        vTaskDelay(pdMS_TO_TICKS(100));
+                    }
+                }
                 mic_start_capture();
                 // Enter LISTENING for the PTT state machine regardless of
                 // whether continuous conversation mode is enabled.
@@ -524,11 +556,45 @@ void app_main(void)
     wifi_init();
     wifi_wait_connected();
 
-    // 2. Initialize void tca9555 GPIO expander
-    // (done inside audio_driver_init)
-
-    // 3. Initialize audio (mic + speaker)
+    // 2. Initialize audio (mic + speaker) and I2C bus
     Speech_Init();
+
+    // 2b. Initialize TCA9555 I/O expander driver (must be after I2C bus creation)
+    tca9555_driver_init();
+
+    // 3. Initialize LCD display (requires TCA9555 to be initialized first)
+    ESP_LOGI(TAG, "Initializing LCD display");
+    lcd_driver_init();
+    lvgl_driver_init();
+
+    // Create simple UI with two text labels
+    lvgl_port_lock(0);
+    lv_obj_t *screen = lv_screen_active();
+    lv_obj_set_style_bg_color(screen, lv_color_hex(0x000000), 0);
+
+    // STT label (top line) - larger font for visibility
+    label_stt = lv_label_create(screen);
+    lv_label_set_text(label_stt, "STT: Ready");
+    lv_obj_set_style_text_color(label_stt, lv_color_hex(0x00FF00), 0);
+    lv_obj_set_style_text_font(label_stt, &lv_font_montserrat_14, 0);
+    lv_obj_align(label_stt, LV_ALIGN_TOP_LEFT, 5, 20);
+    lv_label_set_long_mode(label_stt, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(label_stt, 310);
+
+    // Conversation label (second line) - larger font
+    label_conversation = lv_label_create(screen);
+    lv_label_set_text(label_conversation, "AI: Listening...");
+    lv_obj_set_style_text_color(label_conversation, lv_color_hex(0x00FFFF), 0);
+    lv_obj_set_style_text_font(label_conversation, &lv_font_montserrat_14, 0);
+    lv_obj_align(label_conversation, LV_ALIGN_TOP_LEFT, 5, 60);
+    lv_label_set_long_mode(label_conversation, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(label_conversation, 310);
+
+    // Force screen update
+    lv_refr_now(NULL);
+    lvgl_port_unlock();
+
+    ESP_LOGI(TAG, "LCD display initialized with text labels");
 
     // Initialize STT buffer pool
     stt_pool_init();
@@ -555,13 +621,13 @@ void app_main(void)
         ESP_LOGW(TAG, "Failed to create STT sender queue");
     }
 
-    // 4. Start push-to-talk state machine task
+    // 5. Start push-to-talk state machine task
     xTaskCreatePinnedToCore(ptt_task, "ptt_task", 4096, NULL, 5, NULL, 1);
 
-    // 5. Initialize Conversation API
+    // 6. Initialize Conversation API
     conversation_init("http://192.168.1.154:8000/conversation");
 
-    // 6. Register Conversation API callback
+    // 7. Register Conversation API callback
     conversation_set_callback(on_conversation_reply);
 
     // ensure global log level is applied at startup
@@ -699,6 +765,26 @@ static void on_stt_result(const char *text)
         return;
     }
     ESP_LOGI(TAG, "STT: \"%s\"", text);
+    
+    // Update STT label on LCD
+    ESP_LOGI(TAG, "Attempting LCD update, label_stt=%p", label_stt);
+    if (label_stt) {
+        if (lvgl_port_lock(pdMS_TO_TICKS(1000))) {
+            char display_text[128];
+            snprintf(display_text, sizeof(display_text), "STT: %s", text);
+            lv_label_set_text(label_stt, display_text);
+            lv_obj_invalidate(label_stt);
+            lvgl_port_unlock();
+            // Give LVGL task time to process the update
+            vTaskDelay(pdMS_TO_TICKS(100));
+            ESP_LOGI(TAG, "LCD updated with STT text");
+        } else {
+            ESP_LOGW(TAG, "Failed to acquire LVGL lock for STT update");
+        }
+    } else {
+        ESP_LOGW(TAG, "label_stt is NULL, cannot update");
+    }
+    
     conversation_send(text);
 }
 
@@ -706,5 +792,53 @@ static void on_stt_result(const char *text)
 static void on_conversation_reply(const char *reply_text)
 {
     ESP_LOGD(TAG, "Conversation Server Reply: %s", reply_text);
+    
+    // Parse JSON response to extract just the "response" field
+    const char *parsed_text = reply_text;
+    if (reply_text && strstr(reply_text, "\"response\"")) {
+        // Find "response": in the JSON
+        const char *start = strstr(reply_text, "\"response\"");
+        if (start) {
+            // Move past "response" and find the colon
+            start = strchr(start + 10, ':');  // +10 to skip past "response"
+            if (start) {
+                start++; // Move past the colon
+                // Skip whitespace
+                while (*start == ' ' || *start == '\t' || *start == '\n' || *start == '\r') start++;
+                // Now we should be at the opening quote of the value
+                if (*start == '"') {
+                    start++; // Move past opening quote
+                    const char *end = strchr(start, '"');  // Find closing quote
+                    if (end) {
+                        size_t len = end - start;
+                        char *extracted = malloc(len + 1);
+                        if (extracted) {
+                            memcpy(extracted, start, len);
+                            extracted[len] = '\0';
+                            parsed_text = extracted;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Update conversation label on LCD
+    if (label_conversation) {
+        lvgl_port_lock(0);
+        char display_text[128];
+        snprintf(display_text, sizeof(display_text), "Reply: %s", parsed_text);
+        lv_label_set_text(label_conversation, display_text);
+        lv_obj_invalidate(label_conversation);
+        lvgl_port_unlock();
+        vTaskDelay(pdMS_TO_TICKS(100));
+        ESP_LOGI(TAG, "LCD updated with conversation text");
+    }
+    
+    // Free extracted text if it was allocated
+    if (parsed_text != reply_text) {
+        free((void*)parsed_text);
+    }
+    
     //piper_tts_synthesize(reply_text);
 }

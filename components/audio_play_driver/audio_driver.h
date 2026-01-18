@@ -6,6 +6,7 @@
 #include <stddef.h>
 #include "esp_err.h"
 #include "driver/i2s_std.h"
+#include "driver/i2c_master.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -15,6 +16,9 @@ extern "C" {
 
 esp_err_t audio_driver_init(i2s_chan_handle_t *tx_handle_out,
                             i2s_chan_handle_t *rx_handle_out);
+
+// Return the I2C master bus handle (for use by other components like tca9555_driver)
+i2c_master_bus_handle_t audio_driver_get_i2c_bus(void);
 
 void audio_play_pcm(int16_t *samples, size_t sample_count);
 

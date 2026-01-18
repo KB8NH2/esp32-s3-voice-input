@@ -6,10 +6,10 @@
 #include "esp_log.h"
 #include "driver/i2s_std.h"
 #include "driver/i2c_master.h"
-#include "driver/i2c.h"
 
 #include "led_strip.h"
 #include "bsp_board.h"
+#include "tca9555_driver.h"
 
 // --------------------------
 // I2C config
@@ -105,6 +105,11 @@ static bool s_es7210_tdm = false;
 bool audio_driver_es7210_is_tdm(void)
 {
     return s_es7210_tdm;
+}
+
+i2c_master_bus_handle_t audio_driver_get_i2c_bus(void)
+{
+    return i2c_bus;
 }
 
 // --------------------------
@@ -341,61 +346,15 @@ uint8_t tca9555_read_port0(void) {
     return value;
 }
 
-// Low-level fallback read using ESP-IDF i2c driver in case the master wrapper
-// fails to read the expander registers correctly.
-static esp_err_t tca9555_raw_read_reg(uint8_t reg, uint8_t *out)
-{
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    esp_err_t err = ESP_ERR_INVALID_ARG;
-    // Write register address
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (TCA9555_ADDR << 1) | I2C_MASTER_WRITE, true);
-    i2c_master_write_byte(cmd, reg, true);
-    // Repeated start and read one byte
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (TCA9555_ADDR << 1) | I2C_MASTER_READ, true);
-    i2c_master_read_byte(cmd, out, I2C_MASTER_NACK);
-    i2c_master_stop(cmd);
-    err = i2c_master_cmd_begin(ES_I2C_PORT, cmd, pdMS_TO_TICKS(200));
-    i2c_cmd_link_delete(cmd);
-    return err;
-}
-
 bool key3_pressed(void) {
-    static uint8_t prev_p0 = 0xFF;
-    static uint8_t prev_p1 = 0xFF;
     static bool prev_pressed = false;
 
-    uint8_t port0 = tca9555_read_port0();
-    uint8_t port1 = tca9555_read_port1();
-    bool used_raw = false;
+    // Read key3 from expander pin 9 (port1 bit 1) - active low
+    bool pressed = !Read_EXIO(9);
 
-    // If both ports read as all-zero (or invalid sentinel), try low-level read
-    // which may succeed where the wrapper doesn't.
-    if ((port0 == 0x00 && port1 == 0x00) || (port0 == 0xFF || port1 == 0xFF)) {
-        uint8_t raw0 = 0xEE, raw1 = 0xEE;
-        if (tca9555_raw_read_reg(0x00, &raw0) == ESP_OK) port0 = raw0;
-        if (tca9555_raw_read_reg(0x01, &raw1) == ESP_OK) port1 = raw1;
-        used_raw = true;
-    }
-
-    bool pressed_p1 = !(port1 & (1 << 1));  // P1_1, active-low expected
-    bool pressed_p0 = !(port0 & (1 << 1));  // fallback: P0_1
-    bool pressed = pressed_p1 || pressed_p0;
-
-    // Only log when values or pressed state change to avoid flooding the serial
-    if (port0 != prev_p0 || port1 != prev_p1) {
-        if (used_raw) {
-            ESP_LOGD(TAG, "tca9555_raw_read: P0=0x%02X P1=0x%02X", port0, port1);
-        } else {
-            ESP_LOGD(TAG, "tca9555_read: P0=0x%02X P1=0x%02X", port0, port1);
-        }
-        prev_p0 = port0;
-        prev_p1 = port1;
-    }
-
+    // Only log when pressed state changes to avoid flooding the serial
     if (pressed != prev_pressed) {
-        ESP_LOGD(TAG, "key3 state: pressed=%d (P0=0x%02X P1=0x%02X)", (int)pressed, port0, port1);
+        ESP_LOGD(TAG, "key3 state changed: pressed=%d", (int)pressed);
         prev_pressed = pressed;
     }
 
@@ -438,38 +397,13 @@ bool debounce_key3(void) {
 
 // Key1: similar logic to key3 but mapped to TCA9555 bit 0 (P1_0 / P0_0)
 bool key1_pressed(void) {
-    static uint8_t prev_p0 = 0xFF;
-    static uint8_t prev_p1 = 0xFF;
     static bool prev_pressed = false;
 
-    uint8_t port0 = tca9555_read_port0();
-    uint8_t port1 = tca9555_read_port1();
-    bool used_raw = false;
-
-    if ((port0 == 0x00 && port1 == 0x00) || (port0 == 0xFF || port1 == 0xFF)) {
-        uint8_t raw0 = 0xEE, raw1 = 0xEE;
-        if (tca9555_raw_read_reg(0x00, &raw0) == ESP_OK) port0 = raw0;
-        if (tca9555_raw_read_reg(0x01, &raw1) == ESP_OK) port1 = raw1;
-        used_raw = true;
-    }
-
-    // Map key1 to expander pin 11 (port1 bit 3). Also check same bit in port0 as fallback.
-    bool pressed_p1 = !(port1 & (1 << 3));
-    bool pressed_p0 = !(port0 & (1 << 3));
-    bool pressed = pressed_p1 || pressed_p0;
-
-    if (port0 != prev_p0 || port1 != prev_p1) {
-        if (used_raw) {
-            ESP_LOGD(TAG, "tca9555_raw_read (key1): P0=0x%02X P1=0x%02X", port0, port1);
-        } else {
-            ESP_LOGD(TAG, "tca9555_read (key1): P0=0x%02X P1=0x%02X", port0, port1);
-        }
-        prev_p0 = port0;
-        prev_p1 = port1;
-    }
+    // Read key1 from expander pin 11 (port1 bit 3) - active low
+    bool pressed = !Read_EXIO(11);
 
     if (pressed != prev_pressed) {
-        ESP_LOGD(TAG, "key1 state: pressed=%d (P0=0x%02X P1=0x%02X)", (int)pressed, port0, port1);
+        ESP_LOGD(TAG, "key1 state changed: pressed=%d", (int)pressed);
         prev_pressed = pressed;
     }
 
@@ -506,37 +440,13 @@ bool debounce_key1(void) {
 
 // Key2: mapped to TCA9555 bit 2 (P1_2 / P0_2)
 bool key2_pressed(void) {
-    static uint8_t prev_p0 = 0xFF;
-    static uint8_t prev_p1 = 0xFF;
     static bool prev_pressed = false;
 
-    uint8_t port0 = tca9555_read_port0();
-    uint8_t port1 = tca9555_read_port1();
-    bool used_raw = false;
-
-    if ((port0 == 0x00 && port1 == 0x00) || (port0 == 0xFF || port1 == 0xFF)) {
-        uint8_t raw0 = 0xEE, raw1 = 0xEE;
-        if (tca9555_raw_read_reg(0x00, &raw0) == ESP_OK) port0 = raw0;
-        if (tca9555_raw_read_reg(0x01, &raw1) == ESP_OK) port1 = raw1;
-        used_raw = true;
-    }
-
-    bool pressed_p1 = !(port1 & (1 << 2));
-    bool pressed_p0 = !(port0 & (1 << 2));
-    bool pressed = pressed_p1 || pressed_p0;
-
-    if (port0 != prev_p0 || port1 != prev_p1) {
-        if (used_raw) {
-            ESP_LOGD(TAG, "tca9555_raw_read (key2): P0=0x%02X P1=0x%02X", port0, port1);
-        } else {
-            ESP_LOGD(TAG, "tca9555_read (key2): P0=0x%02X P1=0x%02X", port0, port1);
-        }
-        prev_p0 = port0;
-        prev_p1 = port1;
-    }
+    // Read key2 from expander pin 10 (port1 bit 2) - active low
+    bool pressed = !Read_EXIO(10);
 
     if (pressed != prev_pressed) {
-        ESP_LOGD(TAG, "key2 state: pressed=%d (P0=0x%02X P1=0x%02X)", (int)pressed, port0, port1);
+        ESP_LOGD(TAG, "key2 state changed: pressed=%d", (int)pressed);
         prev_pressed = pressed;
     }
 
@@ -593,28 +503,6 @@ esp_err_t audio_driver_init(i2s_chan_handle_t *tx_handle_out,
 
     ESP_LOGD(TAG, "Creating I2C bus...");
     ESP_ERROR_CHECK(i2c_new_master_bus(&bus_cfg, &i2c_bus));
-
-    // Ensure the underlying ESP-IDF I2C driver is installed so that
-    // raw `i2c_master_cmd_begin` calls (used by our fallback) succeed.
-    {
-        i2c_config_t i2c_conf = {
-            .mode = I2C_MODE_MASTER,
-            .sda_io_num = ES_I2C_SDA_PIN,
-            .scl_io_num = ES_I2C_SCL_PIN,
-            .sda_pullup_en = true,
-            .scl_pullup_en = true,
-            .master = { .clk_speed = ES_I2C_FREQ_HZ },
-        };
-        i2c_param_config(ES_I2C_PORT, &i2c_conf);
-        esp_err_t rc = i2c_driver_install(ES_I2C_PORT, I2C_MODE_MASTER, 0, 0, 0);
-        if (rc == ESP_OK) {
-            ESP_LOGD(TAG, "ESP-IDF i2c driver installed on port %d", ES_I2C_PORT);
-        } else if (rc == ESP_ERR_INVALID_STATE) {
-            ESP_LOGD(TAG, "ESP-IDF i2c driver already installed on port %d", ES_I2C_PORT);
-        } else {
-            ESP_LOGW(TAG, "Failed to install i2c driver: %s", esp_err_to_name(rc));
-        }
-    }
 
     i2c_device_config_t es8311_cfg = {
         .device_address = ES8311_ADDR,

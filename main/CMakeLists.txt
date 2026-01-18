@@ -29,4 +29,7 @@ idf_component_register(
     REQUIRES espressif__gmf_core
     REQUIRES esp_http_client
     REQUIRES nvs_flash
+    REQUIRES lcd_driver
+    REQUIRES lvgl_driver
+    REQUIRES hardware_driver
 )

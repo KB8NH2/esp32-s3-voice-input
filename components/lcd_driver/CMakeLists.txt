@@ -2,4 +2,4 @@ file(GLOB_RECURSE component_srcs RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} "*.c" "*.c
 idf_component_register(SRCS ${component_srcs}
 					   INCLUDE_DIRS "."
 					   PRIV_REQUIRES "hardware_driver"
-					   REQUIRES esp_lcd esp_lcd_jd9853)
+					   REQUIRES esp_lcd esp_lcd_jd9853 tca9555_driver)

@@ -175,16 +175,21 @@ char *stt_send_wav_multipart(const int16_t *pcm_data, size_t pcm_samples)
     }
     ESP_LOGD(TAG, "socket created: fd=%d", sock);
 
-    // set send timeout
+    // set send/recv timeout - increase recv timeout for Whisper processing
     struct timeval tv;
     tv.tv_sec = 5;
     tv.tv_usec = 0;
     setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+    
+    // Whisper can take 30+ seconds to process audio
+    tv.tv_sec = 60;
+    tv.tv_usec = 0;
     setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
     // Use non-blocking connect with timeout to avoid hard hangs
     int old_flags = fcntl(sock, F_GETFL, 0);
     fcntl(sock, F_SETFL, old_flags | O_NONBLOCK);
+    ESP_LOGI(TAG, "Connecting to STT server %s:%s...", ipstr, port);
     int rc = connect(sock, (struct sockaddr *)&dest, sizeof(dest));
     if (rc != 0) {
         if (errno == EINPROGRESS) {
@@ -197,7 +202,7 @@ char *stt_send_wav_multipart(const int16_t *pcm_data, size_t pcm_samples)
             tv.tv_usec = 0;
             int sel = select(sock + 1, NULL, &wf, NULL, &tv);
             if (sel <= 0) {
-                ESP_LOGE(TAG, "connect timeout or select error: %d", sel);
+                ESP_LOGE(TAG, "STT server connect timeout (is Whisper running on %s:%s?)", ipstr, port);
                 close(sock);
                 if (res) freeaddrinfo(res);
                 return NULL;
@@ -206,14 +211,14 @@ char *stt_send_wav_multipart(const int16_t *pcm_data, size_t pcm_samples)
             socklen_t len = sizeof(so_error);
             getsockopt(sock, SOL_SOCKET, SO_ERROR, &so_error, &len);
             if (so_error != 0) {
-                ESP_LOGE(TAG, "connect failed after select: so_error=%d", so_error);
+                ESP_LOGE(TAG, "STT server connection refused (errno=%d). Check if Whisper is running at %s:%s", so_error, ipstr, port);
                 close(sock);
                 if (res) freeaddrinfo(res);
                 return NULL;
             }
-            ESP_LOGD(TAG, "connect completed via select");
+            ESP_LOGI(TAG, "Connected to STT server successfully");
         } else {
-            ESP_LOGE(TAG, "connect failed immediately: errno=%d", errno);
+            ESP_LOGE(TAG, "STT server connect failed: errno=%d (%s)", errno, strerror(errno));
             close(sock);
             if (res) freeaddrinfo(res);
             return NULL;
@@ -239,17 +244,24 @@ char *stt_send_wav_multipart(const int16_t *pcm_data, size_t pcm_samples)
         path, host, port, boundary, total_len);
 
     if (socket_send_all(sock, req_hdr, req_len, 5000) != req_len) {
-        ESP_LOGE(TAG, "failed sending request header");
+        ESP_LOGE(TAG, "Failed to send HTTP request header (server may have closed connection)");
         close(sock);
         return NULL;
     }
+    ESP_LOGI(TAG, "Sent HTTP POST request to %s, total payload: %d bytes", path, total_len);
 
     // send form header
     if (socket_send_all(sock, form_header, header_len, 5000) != header_len) {
-        ESP_LOGE(TAG, "failed sending form header"); close(sock); return NULL;
+        ESP_LOGE(TAG, "Failed to send form header");
+        close(sock);
+        return NULL;
     }
     // send wav header
-    if (socket_send_all(sock, wav_header, 44, 5000) != 44) { ESP_LOGE(TAG, "failed sending wav header"); close(sock); return NULL; }
+    if (socket_send_all(sock, wav_header, 44, 5000) != 44) {
+        ESP_LOGE(TAG, "Failed to send WAV header");
+        close(sock);
+        return NULL;
+    }
 
     // send PCM
     const int CHUNK_SAMPLES = 1024;
@@ -259,7 +271,12 @@ char *stt_send_wav_multipart(const int16_t *pcm_data, size_t pcm_samples)
         const int CHUNK_BYTES = 1024;
         while (bytes_remaining > 0) {
             int chunk = bytes_remaining > CHUNK_BYTES ? CHUNK_BYTES : bytes_remaining;
-            if (socket_send_all(sock, pcm_ptr, chunk, 5000) != chunk) { ESP_LOGE(TAG, "failed sending pcm chunk"); close(sock); return NULL; }
+            // Use 60-second timeout for PCM chunks to handle slow server processing
+            if (socket_send_all(sock, pcm_ptr, chunk, 60000) != chunk) {
+                ESP_LOGE(TAG, "failed sending pcm chunk");
+                close(sock);
+                return NULL;
+            }
             pcm_ptr += chunk;
             bytes_remaining -= chunk;
         }
@@ -317,9 +334,10 @@ char *stt_send_wav_multipart(const int16_t *pcm_data, size_t pcm_samples)
     resp_buf[total] = '\0';
     close(sock);
 
-    /*
-    ESP_LOGD(TAG, "HTTP response (%d bytes): %s", total, resp_buf);
-    */
+    ESP_LOGD(TAG, "HTTP response received: %d bytes", total);
+    if (total > 0) {
+        ESP_LOGD(TAG, "Response preview (first 200 chars): %.200s", resp_buf);
+    }
     // Helper: extract body and decode chunked transfer if present
     char *body = NULL;
     char *hdr_end = NULL;
@@ -392,6 +410,9 @@ char *stt_send_wav_multipart(const int16_t *pcm_data, size_t pcm_samples)
     if (body) {
         int bl = strlen(body);
         while (bl > 0 && (body[bl-1] == '\n' || body[bl-1] == '\r')) { body[--bl] = '\0'; }
+        ESP_LOGD(TAG, "Parsed body (%d bytes): %s", bl, body);
+    } else {
+        ESP_LOGW(TAG, "Failed to parse response body");
     }
     return body;
 }

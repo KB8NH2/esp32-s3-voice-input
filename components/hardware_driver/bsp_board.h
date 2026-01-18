@@ -139,7 +139,7 @@ extern "C" {
 #define EXAMPLE_LCD_PARAM_BITS      (8)
 #define EXAMPLE_LCD_BITS_PER_PIXEL  (16)
 #define EXAMPLE_LCD_DRAW_BUFF_DOUBLE (1)
-#define EXAMPLE_LCD_DRAW_BUFF_HEIGHT (50)
+#define EXAMPLE_LCD_DRAW_BUFF_HEIGHT (10)
 #define EXAMPLE_LCD_BL_ON_LEVEL     (1)
 #define Backlight_MAX           100   
 #define DEFAULT_BACKLIGHT       80 
