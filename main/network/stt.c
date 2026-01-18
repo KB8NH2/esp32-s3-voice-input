@@ -95,6 +95,10 @@ char *stt_send_wav_multipart(const int16_t *pcm_data, size_t pcm_samples)
     const char *path = "/asr";
     const char *boundary = "----ESP32Boundary";
 
+    if (pcm_samples == 0 || !pcm_data) {
+        ESP_LOGE(TAG, "stt_send_wav_multipart: invalid pcm_samples or pcm_data");
+        return NULL;
+    }
     int out_samples = pcm_samples;
     bool resample_needed = false;
     double rescale = 1.0;
@@ -189,7 +193,7 @@ char *stt_send_wav_multipart(const int16_t *pcm_data, size_t pcm_samples)
     // Use non-blocking connect with timeout to avoid hard hangs
     int old_flags = fcntl(sock, F_GETFL, 0);
     fcntl(sock, F_SETFL, old_flags | O_NONBLOCK);
-    ESP_LOGI(TAG, "Connecting to STT server %s:%s...", ipstr, port);
+    ESP_LOGD(TAG, "Connecting to STT server %s:%s...", ipstr, port);
     int rc = connect(sock, (struct sockaddr *)&dest, sizeof(dest));
     if (rc != 0) {
         if (errno == EINPROGRESS) {
@@ -216,7 +220,7 @@ char *stt_send_wav_multipart(const int16_t *pcm_data, size_t pcm_samples)
                 if (res) freeaddrinfo(res);
                 return NULL;
             }
-            ESP_LOGI(TAG, "Connected to STT server successfully");
+            ESP_LOGD(TAG, "Connected to STT server successfully");
         } else {
             ESP_LOGE(TAG, "STT server connect failed: errno=%d (%s)", errno, strerror(errno));
             close(sock);
@@ -248,7 +252,7 @@ char *stt_send_wav_multipart(const int16_t *pcm_data, size_t pcm_samples)
         close(sock);
         return NULL;
     }
-    ESP_LOGI(TAG, "Sent HTTP POST request to %s, total payload: %d bytes", path, total_len);
+    ESP_LOGD(TAG, "Sent HTTP POST request to %s, total payload: %d bytes", path, total_len);
 
     // send form header
     if (socket_send_all(sock, form_header, header_len, 5000) != header_len) {

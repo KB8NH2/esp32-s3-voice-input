@@ -315,6 +315,8 @@ void tca9555_init(void) {
 }
 
 // Read Port 1
+// These functions are deprecated - use Read_EXIO() from tca9555_driver instead
+/*
 uint8_t tca9555_read_port1(void) {
     uint8_t reg = 0x01;
     uint8_t value = 0;
@@ -345,12 +347,13 @@ uint8_t tca9555_read_port0(void) {
 
     return value;
 }
+*/
 
 bool key3_pressed(void) {
     static bool prev_pressed = false;
 
     // Read key3 from expander pin 9 (port1 bit 1) - active low
-    bool pressed = !Read_EXIO(9);
+    bool pressed = !Read_EXIO(IO_EXPANDER_PIN_NUM_9);
 
     // Only log when pressed state changes to avoid flooding the serial
     if (pressed != prev_pressed) {
@@ -400,7 +403,7 @@ bool key1_pressed(void) {
     static bool prev_pressed = false;
 
     // Read key1 from expander pin 11 (port1 bit 3) - active low
-    bool pressed = !Read_EXIO(11);
+    bool pressed = !Read_EXIO(IO_EXPANDER_PIN_NUM_11);
 
     if (pressed != prev_pressed) {
         ESP_LOGD(TAG, "key1 state changed: pressed=%d", (int)pressed);
@@ -443,7 +446,7 @@ bool key2_pressed(void) {
     static bool prev_pressed = false;
 
     // Read key2 from expander pin 10 (port1 bit 2) - active low
-    bool pressed = !Read_EXIO(10);
+    bool pressed = !Read_EXIO(IO_EXPANDER_PIN_NUM_10);
 
     if (pressed != prev_pressed) {
         ESP_LOGD(TAG, "key2 state changed: pressed=%d", (int)pressed);
@@ -563,42 +566,8 @@ esp_err_t audio_driver_init(i2s_chan_handle_t *tx_handle_out,
         }
     }
 
-    // Add TCA9555 port expander device (for keys)
-    i2c_device_config_t tca_cfg = {
-        .device_address = 0x20,
-        .scl_speed_hz = ES_I2C_FREQ_HZ,
-    };
-    if (i2c_master_bus_add_device(i2c_bus, &tca_cfg, &tca9555_dev) == ESP_OK) {
-        // configure both P0 and P1 pins as inputs (regs 0x06 & 0x07)
-        uint8_t cfg0[2] = { 0x06, 0xFF };
-        uint8_t cfg1[2] = { 0x07, 0xFF };
-        i2c_master_transmit(tca9555_dev, cfg0, sizeof(cfg0), 100);
-        i2c_master_transmit(tca9555_dev, cfg1, sizeof(cfg1), 100);
-        ESP_LOGD(TAG, "TCA9555: configured P0=0xFF P1=0xFF");
-
-        // Read back port input registers and a short register dump to verify device state
-        uint8_t read_p0 = tca9555_read_port0();
-        uint8_t read_p1 = tca9555_read_port1();
-        ESP_LOGD(TAG, "tca9555_readback: P0=0x%02X P1=0x%02X", read_p0, read_p1);
-
-        // Try to read registers 0x00..0x07 directly for diagnosis
-        {
-            uint8_t regs[8];
-            for (uint8_t r = 0; r < 8; ++r) {
-                uint8_t reg = r;
-                regs[r] = 0xEE;
-                if (i2c_master_transmit(tca9555_dev, &reg, 1, 100) == ESP_OK) {
-                    if (i2c_master_receive(tca9555_dev, &regs[r], 1, 100) != ESP_OK) {
-                        regs[r] = 0xEF;
-                    }
-                }
-            }
-            ESP_LOGD(TAG, "tca9555_init_read 0x00..0x07: %02X %02X %02X %02X %02X %02X %02X %02X",
-                     regs[0], regs[1], regs[2], regs[3], regs[4], regs[5], regs[6], regs[7]);
-        }
-    } else {
-        ESP_LOGW(TAG, "Failed to add TCA9555 device");
-    }
+    // TCA9555 initialization is now handled by tca9555_driver_init()
+    // No need to configure it here
 
 
     //

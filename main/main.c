@@ -234,7 +234,12 @@ static void vad_ptt_notify_cb(const int16_t *samples, size_t count)
     }
 
     // Not in PTT mode — spawn background STT task to check for wake-word.
+    // Skip if queue has pending items to avoid backlog
     if (count == 0 || samples == NULL) return;
+    if (s_stt_queue && uxQueueMessagesWaiting(s_stt_queue) > 0) {
+        ESP_LOGD(TAG, "STT queue busy, skipping background segment");
+        return;
+    }
 
     // Try pool first for background segments as well
     int16_t *pbuf = stt_pool_alloc();
@@ -250,10 +255,10 @@ static void vad_ptt_notify_cb(const int16_t *samples, size_t count)
         arg->samples = to_copy;
         arg->owns_buf = 0;
         // Enqueue pooled background segment to single-worker sender
-        if (s_stt_queue && xQueueSend(s_stt_queue, &arg, pdMS_TO_TICKS(10)) == pdTRUE) {
+        if (s_stt_queue && xQueueSend(s_stt_queue, &arg, 0) == pdTRUE) {
             ESP_LOGD(TAG, "Enqueued background pooled segment %p samples=%u", pbuf, (unsigned)to_copy);
         } else {
-            ESP_LOGW(TAG, "STT queue full or unavailable; dropping background segment");
+            ESP_LOGD(TAG, "STT queue full; dropping background segment");
             stt_pool_free(pbuf);
             free(arg);
         }
@@ -265,7 +270,7 @@ static void vad_ptt_notify_cb(const int16_t *samples, size_t count)
     size_t ps_largest = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM);
     size_t heap_free = esp_get_free_heap_size();
     if ((ps_largest > 0 && ps_largest < buf_bytes + 1024) || (ps_largest == 0 && heap_free < buf_bytes + 4096)) {
-        ESP_LOGW(TAG, "Skipping background VAD segment: insufficient contiguous RAM for %u bytes (ps_largest=%u free=%u)", (unsigned)buf_bytes, (unsigned)ps_largest, (unsigned)heap_free);
+        ESP_LOGD(TAG, "Skipping background VAD segment: insufficient contiguous RAM for %u bytes (ps_largest=%u free=%u)", (unsigned)buf_bytes, (unsigned)ps_largest, (unsigned)heap_free);
         return;
     }
     int16_t *buf = heap_caps_malloc(buf_bytes, MALLOC_CAP_8BIT);
@@ -282,10 +287,12 @@ static void vad_ptt_notify_cb(const int16_t *samples, size_t count)
     arg->samples = count;
     arg->owns_buf = 1;
 
-    // Use a separate task variant that will check for wake-word.
-    BaseType_t ok = xTaskCreatePinnedToCore(stt_bg_task, "stt_bg", 12288, arg, 5, NULL, 1);
-    if (ok != pdTRUE) {
-        if (arg->owns_buf) free(arg->buf);
+    // Enqueue to worker instead of spawning new task
+    if (s_stt_queue && xQueueSend(s_stt_queue, &arg, 0) == pdTRUE) {
+        ESP_LOGD(TAG, "Enqueued background fallback segment %p samples=%u", buf, (unsigned)count);
+    } else {
+        ESP_LOGD(TAG, "STT queue full; dropping background fallback segment");
+        free(buf);
         free(arg);
     }
 }
@@ -338,7 +345,7 @@ static void stt_process_arg(struct stt_task_arg *a)
                 if (a->owns_buf || s_stay_in_conversation || s_ptt_listening) {
                     on_stt_result(resp);
                 } else {
-                    ESP_LOGI(TAG, "Background STT (not wake-word, not listening): %s", resp);
+                    ESP_LOGD(TAG, "Background STT (not wake-word, not listening): %s", resp);
                 }
             }
         }
@@ -574,7 +581,7 @@ void app_main(void)
 
     // STT label (top line) - larger font for visibility
     label_stt = lv_label_create(screen);
-    lv_label_set_text(label_stt, "STT: Ready");
+    lv_label_set_text(label_stt, "STT: Listening for wake word...");
     lv_obj_set_style_text_color(label_stt, lv_color_hex(0x00FF00), 0);
     lv_obj_set_style_text_font(label_stt, &lv_font_montserrat_14, 0);
     lv_obj_align(label_stt, LV_ALIGN_TOP_LEFT, 5, 20);
@@ -583,7 +590,7 @@ void app_main(void)
 
     // Conversation label (second line) - larger font
     label_conversation = lv_label_create(screen);
-    lv_label_set_text(label_conversation, "AI: Listening...");
+    lv_label_set_text(label_conversation, "AI: Listening for wake word...");
     lv_obj_set_style_text_color(label_conversation, lv_color_hex(0x00FFFF), 0);
     lv_obj_set_style_text_font(label_conversation, &lv_font_montserrat_14, 0);
     lv_obj_align(label_conversation, LV_ALIGN_TOP_LEFT, 5, 60);
@@ -764,10 +771,10 @@ static void on_stt_result(const char *text)
         ESP_LOGD(TAG, "STT: empty result");
         return;
     }
-    ESP_LOGI(TAG, "STT: \"%s\"", text);
+    ESP_LOGD(TAG, "STT: \"%s\"", text);
     
     // Update STT label on LCD
-    ESP_LOGI(TAG, "Attempting LCD update, label_stt=%p", label_stt);
+    ESP_LOGD(TAG, "Attempting LCD update, label_stt=%p", label_stt);
     if (label_stt) {
         if (lvgl_port_lock(pdMS_TO_TICKS(1000))) {
             char display_text[128];
@@ -777,7 +784,7 @@ static void on_stt_result(const char *text)
             lvgl_port_unlock();
             // Give LVGL task time to process the update
             vTaskDelay(pdMS_TO_TICKS(100));
-            ESP_LOGI(TAG, "LCD updated with STT text");
+            ESP_LOGD(TAG, "LCD updated with STT text");
         } else {
             ESP_LOGW(TAG, "Failed to acquire LVGL lock for STT update");
         }
@@ -822,7 +829,7 @@ static void on_conversation_reply(const char *reply_text)
             }
         }
     }
-    
+    ESP_LOGI(TAG, "Conversation Reply: %s", parsed_text);
     // Update conversation label on LCD
     if (label_conversation) {
         lvgl_port_lock(0);
@@ -832,7 +839,7 @@ static void on_conversation_reply(const char *reply_text)
         lv_obj_invalidate(label_conversation);
         lvgl_port_unlock();
         vTaskDelay(pdMS_TO_TICKS(100));
-        ESP_LOGI(TAG, "LCD updated with conversation text");
+        ESP_LOGD(TAG, "LCD updated with conversation text");
     }
     
     // Free extracted text if it was allocated
