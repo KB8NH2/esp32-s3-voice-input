@@ -271,7 +271,7 @@ static void mic_task(void *arg)
                 s_no_clip_count = 0;
             }
 
-            // If we've had a long period without clipping, cautiously increase gain
+            /*/ If we've had a long period without clipping, cautiously increase gain
             if (s_no_clip_count >= 2000) {
                 if (s_gain_mult < 24) {
                     s_gain_mult = s_gain_mult * 2;
@@ -279,7 +279,7 @@ static void mic_task(void *arg)
                     ESP_LOGD(TAG, "mic: no clipping, increasing gain -> x%d", s_gain_mult);
                 }
                 s_no_clip_count = 0;
-            }
+            }*/
         }
 
         // ----------------------------------------------------

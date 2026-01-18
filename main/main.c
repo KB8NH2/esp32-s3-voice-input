@@ -315,19 +315,18 @@ static void stt_process_arg(struct stt_task_arg *a)
     if (resp) {
         if (strlen(resp) > 0) {
             ESP_LOGI(TAG, "Whisper returned: \"%s\"", resp);
+            if (label_stt) {
+                if (lvgl_port_lock(pdMS_TO_TICKS(1000))) {
+                    char display_text[128];
+                    snprintf(display_text, sizeof(display_text), "STT: %s", resp);
+                    lv_label_set_text(label_stt, display_text);
+                    lv_obj_invalidate(label_stt);
+                    lvgl_port_unlock();
+                    vTaskDelay(pdMS_TO_TICKS(100));
+                }
+            }
             if (is_wake_word(resp)) {
                 ESP_LOGI(TAG, "Wake-word detected! Entering listening mode");
-                // Update LCD to show wake-word was heard (but don't send to conversation)
-                if (label_stt) {
-                    if (lvgl_port_lock(pdMS_TO_TICKS(1000))) {
-                        char display_text[128];
-                        snprintf(display_text, sizeof(display_text), "STT: %s", resp);
-                        lv_label_set_text(label_stt, display_text);
-                        lv_obj_invalidate(label_stt);
-                        lvgl_port_unlock();
-                        vTaskDelay(pdMS_TO_TICKS(100));
-                    }
-                }
                 // Start capture and enter LISTENING so VAD events are processed
                 mic_start_capture();
                 s_ptt_listening = 1;
@@ -476,6 +475,25 @@ static void stt_bg_task(void *v)
     if (resp) {
         if (strlen(resp) > 0) {
             ESP_LOGI(TAG, "Whisper returned: \"%s\"", resp);
+            // Update STT label on LCD
+            ESP_LOGD(TAG, "Attempting LCD update, label_stt=%p", label_stt);
+            if (label_stt) {
+                if (lvgl_port_lock(pdMS_TO_TICKS(1000))) {
+                    char display_text[128];
+                    snprintf(display_text, sizeof(display_text), "STT: %s", resp);
+                    lv_label_set_text(label_stt, display_text);
+                    lv_obj_invalidate(label_stt);
+                    lvgl_port_unlock();
+                    // Give LVGL task time to process the update
+                    vTaskDelay(pdMS_TO_TICKS(100));
+                    ESP_LOGD(TAG, "LCD updated with STT text");
+                } else {
+                    ESP_LOGW(TAG, "Failed to acquire LVGL lock for STT update");
+                }
+            } else {
+                ESP_LOGW(TAG, "label_stt is NULL, cannot update");
+            }
+            
             if (is_wake_word(resp)) {
                 ESP_LOGD(TAG, "Wake-word detected -> entering LISTEN mode");
                 // Update LCD to show wake-word was heard (but don't send to conversation)
@@ -773,25 +791,6 @@ static void on_stt_result(const char *text)
     }
     ESP_LOGD(TAG, "STT: \"%s\"", text);
     
-    // Update STT label on LCD
-    ESP_LOGD(TAG, "Attempting LCD update, label_stt=%p", label_stt);
-    if (label_stt) {
-        if (lvgl_port_lock(pdMS_TO_TICKS(1000))) {
-            char display_text[128];
-            snprintf(display_text, sizeof(display_text), "STT: %s", text);
-            lv_label_set_text(label_stt, display_text);
-            lv_obj_invalidate(label_stt);
-            lvgl_port_unlock();
-            // Give LVGL task time to process the update
-            vTaskDelay(pdMS_TO_TICKS(100));
-            ESP_LOGD(TAG, "LCD updated with STT text");
-        } else {
-            ESP_LOGW(TAG, "Failed to acquire LVGL lock for STT update");
-        }
-    } else {
-        ESP_LOGW(TAG, "label_stt is NULL, cannot update");
-    }
-    
     conversation_send(text);
 }
 
@@ -835,6 +834,28 @@ static void on_conversation_reply(const char *reply_text)
         lvgl_port_lock(0);
         char display_text[128];
         snprintf(display_text, sizeof(display_text), "Reply: %s", parsed_text);
+        
+        // Replace Unicode smart quotes with ASCII equivalents for display
+        // U+2018 (') and U+2019 (') -> ' (0x27)
+        // U+201C (") and U+201D (") -> " (0x22)
+        for (int i = 0; display_text[i] != '\0'; i++) {
+            if ((unsigned char)display_text[i] == 0xE2 && i + 2 < 128) {
+                if ((unsigned char)display_text[i+1] == 0x80) {
+                    if ((unsigned char)display_text[i+2] == 0x98 || 
+                        (unsigned char)display_text[i+2] == 0x99) {
+                        // Left/right single quote -> ASCII apostrophe
+                        display_text[i] = '\'';
+                        memmove(&display_text[i+1], &display_text[i+3], strlen(&display_text[i+3]) + 1);
+                    } else if ((unsigned char)display_text[i+2] == 0x9C || 
+                               (unsigned char)display_text[i+2] == 0x9D) {
+                        // Left/right double quote -> ASCII quote
+                        display_text[i] = '"';
+                        memmove(&display_text[i+1], &display_text[i+3], strlen(&display_text[i+3]) + 1);
+                    }
+                }
+            }
+        }
+        
         lv_label_set_text(label_conversation, display_text);
         lv_obj_invalidate(label_conversation);
         lvgl_port_unlock();
